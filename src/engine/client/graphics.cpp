@@ -393,18 +393,18 @@ int CGraphics_OpenGL::LoadTextureRaw(int Width, int Height, int Format, const vo
 	glGenTextures(1, &m_aTextures[Tex].m_Tex);
 	glBindTexture(GL_TEXTURE_2D, m_aTextures[Tex].m_Tex);
 
-	if(Flags&TEXLOAD_NOMIPMAPS)
-	{
+	/*if(Flags&TEXLOAD_NOMIPMAPS)
+	{*/
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexImage2D(GL_TEXTURE_2D, 0, StoreOglformat, Width, Height, 0, Oglformat, GL_UNSIGNED_BYTE, pData);
-	}
+	/*}
 	else
 	{
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
 		gluBuild2DMipmaps(GL_TEXTURE_2D, StoreOglformat, Width, Height, Oglformat, GL_UNSIGNED_BYTE, pTexData);
-	}
+	}*/
 
 	// calculate memory usage
 	{
@@ -788,7 +788,7 @@ int CGraphics_OpenGL::Init()
 int CGraphics_SDL::TryInit()
 {
 	const SDL_VideoInfo *pInfo = SDL_GetVideoInfo();
-	SDL_EventState(SDL_MOUSEMOTION, SDL_IGNORE); // prevent stuck mouse cursor sdl-bug when loosing fullscreen focus in windows
+//	SDL_EventState(SDL_MOUSEMOTION, SDL_IGNORE); // prevent stuck mouse cursor sdl-bug when loosing fullscreen focus in windows
 
 	// use current resolution as default
 #ifndef __ANDROID__
@@ -839,7 +839,7 @@ int CGraphics_SDL::TryInit()
 	}
 
 	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-	SDL_GL_SetAttribute(SDL_GL_SWAP_CONTROL, g_Config.m_GfxVsync);
+//	SDL_GL_SetAttribute(SDL_GL_SWAP_CONTROL, g_Config.m_GfxVsync);
 
 	// set caption
 	SDL_WM_SetCaption("DDNet Client", "DDNet Client");
@@ -905,8 +905,8 @@ int CGraphics_SDL::Init()
 		if(g_Config.m_SndEnable)
 			Systems |= SDL_INIT_AUDIO;
 
-		if(g_Config.m_ClEventthread)
-			Systems |= SDL_INIT_EVENTTHREAD;
+//		if(g_Config.m_ClEventthread)
+//			Systems |= SDL_INIT_EVENTTHREAD;
 
 		if(SDL_Init(Systems) < 0)
 		{

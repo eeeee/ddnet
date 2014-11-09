@@ -50,7 +50,7 @@
 	#endif
 #endif
 
-#if defined(__GNU__) || defined(__gnu__)
+#if defined(__GNU__) || defined(__gnu__) || defined(EMSCRIPTEN)
 	#define CONF_FAMILY_UNIX 1
 	#define CONF_FAMILY_STRING "unix"
 	#define CONF_PLATFORM_HURD 1

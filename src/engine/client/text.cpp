@@ -455,6 +455,7 @@ public:
 
 	virtual void Init()
 	{
+		return;
 		m_pGraphics = Kernel()->RequestInterface<IGraphics>();
 		FT_Init_FreeType(&m_FTLibrary);
 	}
@@ -550,6 +551,7 @@ public:
 
 	virtual void TextEx(CTextCursor *pCursor, const char *pText, int Length)
 	{
+		return;
 		CFont *pFont = pCursor->m_pFont;
 		CFontSizeData *pSizeData = NULL;
 

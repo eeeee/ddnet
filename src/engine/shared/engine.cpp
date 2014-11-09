@@ -74,7 +74,7 @@ public:
 		net_init();
 		CNetBase::Init();
 
-		m_JobPool.Init(1);
+//		m_JobPool.Init(1);
 
 		m_Logging = false;
 	}

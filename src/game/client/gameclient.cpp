@@ -320,6 +320,8 @@ void CGameClient::OnInit()
 	// Set free binds to DDRace binds if it's active
 	if(!g_Config.m_ClDDRaceBindsSet && g_Config.m_ClDDRaceBinds)
 		gs_Binds.SetDDRaceBinds(true);
+
+	Client()->DemoPlayer_Play("demo.demo", IStorage::TYPE_ALL);
 }
 
 void CGameClient::DispatchInput()

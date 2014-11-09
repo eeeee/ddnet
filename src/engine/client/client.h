@@ -191,6 +191,8 @@ class CClient : public IClient, public CDemoPlayer::IListner
   vec3 GetColorV3(int v);
 
 public:
+	void MainLoop();
+
 	IEngine *Engine() { return m_pEngine; }
 	IEngineGraphics *Graphics() { return m_pGraphics; }
 	IEngineInput *Input() { return m_pInput; }

@@ -1,4 +1,4 @@
-
+/*
 #include "SDL.h"
 #if defined(__ANDROID__)
 	#define GL_GLEXT_PROTOTYPES
@@ -656,3 +656,4 @@ int CGraphicsBackend_SDL_OpenGL::WindowOpen()
 
 
 IGraphicsBackend *CreateGraphicsBackend() { return new CGraphicsBackend_SDL_OpenGL; }
+*/

@@ -2337,6 +2337,16 @@ void CClient::InitInterfaces()
 	}
 }
 
+extern "C"
+{
+	void emscripten_set_main_loop_arg(void (*func)(void*), void *arg, int fps, int simulate_infinite_loop);
+	void emscripten_cancel_main_loop();
+}
+
+void mainLoop(CClient* cl) {
+	cl->MainLoop();
+}
+
 void CClient::Run()
 {
 	m_LocalStartTime = time_get();
@@ -2372,7 +2382,8 @@ void CClient::Run()
 	}
 
 	// init sound, allowed to fail
-	m_SoundInitFailed = Sound()->Init() != 0;
+	// m_SoundInitFailed = Sound()->Init() != 0;
+	m_SoundInitFailed = 1;
 
 	// open socket
 	{
@@ -2389,6 +2400,7 @@ void CClient::Run()
 		}
 		for(int i = 0; i < 2; i++)
 		{
+			continue;
 			if(!m_NetClient[i].Open(BindAddr, 0))
 			{
 				dbg_msg("client", "couldn't open socket");
@@ -2443,8 +2455,12 @@ void CClient::Run()
 	bool LastE = false;
 	bool LastG = false;
 
-	while (1)
-	{
+	emscripten_set_main_loop_arg((void (*)(void *))mainLoop, this, 0, 1);
+}
+
+void CClient::MainLoop() {
+	do {
+		/*
 		//
 		VersionUpdate();
 
@@ -2618,7 +2634,7 @@ void CClient::Run()
 
 		// update local time
 		m_LocalTime = (time_get()-m_LocalStartTime)/(float)time_freq();
-	}
+/*	}
 
 	GameClient()->OnShutdown();
 	Disconnect();
@@ -2631,6 +2647,11 @@ void CClient::Run()
 		SDL_Quit();
 	}
 }
+*/
+		return;
+	} while (false);
+	emscripten_cancel_main_loop();
+};
 
 bool CClient::CtrlShiftKey(int Key, bool &Last)
 {

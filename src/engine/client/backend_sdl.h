@@ -1,4 +1,4 @@
-
+/*
 #include "SDL.h"
 
 #include "graphics_threaded.h"
@@ -309,3 +309,4 @@ public:
 	virtual int WindowActive();
 	virtual int WindowOpen();
 };
+*/
