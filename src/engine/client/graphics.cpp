@@ -951,6 +951,8 @@ void CGraphics_SDL::Maximize()
 
 int CGraphics_SDL::WindowActive()
 {
+	return 1;
+	// doesn't work in js
 	return SDL_GetAppState()&SDL_APPINPUTFOCUS;
 }
 
