@@ -54,7 +54,7 @@ void CInput::Init()
 
 void CInput::MouseRelative(float *x, float *y)
 {
-#if defined(__ANDROID__) // No relative mouse on Android
+#if defined(__ANDROID__) || defined(EMSCRIPTEN) // No relative mouse on Android
 	int nx = 0, ny = 0;
 	SDL_GetMouseState(&nx, &ny);
 	*x = nx;

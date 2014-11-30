@@ -2467,11 +2467,11 @@ void CClient::MainLoop() {
 			Connect(m_aCmdConnect);
 			m_aCmdConnect[0] = 0;
 		}
-
+		*/
 		// update input
 		if(Input()->Update())
 			break;	// SDL_QUIT
-
+		/*
 		// update sound
 		Sound()->Update();
 
