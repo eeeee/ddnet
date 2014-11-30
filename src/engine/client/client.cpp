@@ -3116,7 +3116,7 @@ int main(int argc, const char **argv) // ignore_convention
 	}
 #endif
 
-#if !defined(CONF_PLATFORM_MACOSX)
+#if !defined(CONF_PLATFORM_MACOSX) && !defined(EMSCRIPTEN)
 	dbg_enable_threaded();
 #endif
 
@@ -3203,7 +3203,7 @@ int main(int argc, const char **argv) // ignore_convention
 
 	pClient->Engine()->InitLogfile();
 
-#if defined(CONF_FAMILY_UNIX)
+#if defined(CONF_FAMILY_UNIX) && !defined(EMSCRIPTEN)
 	FifoConsole *fifoConsole = new FifoConsole(pConsole, g_Config.m_ClInputFifo, CFGFLAG_CLIENT);
 #endif
 
@@ -3211,7 +3211,7 @@ int main(int argc, const char **argv) // ignore_convention
 	dbg_msg("client", "starting...");
 	pClient->Run();
 
-#if defined(CONF_FAMILY_UNIX)
+#if defined(CONF_FAMILY_UNIX) && !defined(EMSCRIPTEN)
 	delete fifoConsole;
 #endif
 

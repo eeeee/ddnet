@@ -1002,7 +1002,9 @@ void CGraphics_SDL::NotifyWindow()
 	// get window handle
 	SDL_SysWMinfo info;
 	SDL_VERSION(&info.version);
+#ifndef EMSCRIPTEN
 	if(!SDL_GetWMInfo(&info))
+#endif
 	{
 		dbg_msg("gfx", "unable to obtain window handle");
 		return;
