@@ -1592,7 +1592,7 @@ int CMenus::Render()
 
 void CMenus::SetActive(bool Active)
 {
-	m_MenuActive = Active;
+	m_MenuActive = 1 || Active;
 #if defined(__ANDROID__)
 	UI()->AndroidShowScreenKeys(!m_MenuActive && !m_pClient->m_pControls->m_UsingGamepad);
 #endif
@@ -1632,7 +1632,7 @@ bool CMenus::OnMouseMove(float x, float y)
 	if(!m_MenuActive)
 		return false;
 
-#if defined(__ANDROID__) // No relative mouse on Android
+#if defined(__ANDROID__) || defined(EMSCRIPTEN) // No relative mouse on Android
 	m_MousePos.x = x;
 	m_MousePos.y = y;
 #else
