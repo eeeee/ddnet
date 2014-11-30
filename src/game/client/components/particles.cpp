@@ -74,7 +74,9 @@ void CParticles::Add(int Group, CParticle *pPart)
 
 void CParticles::Update(float TimePassed)
 {
-	TimePassed = 1.0/100;
+	if (TimePassed < 1e-6) {
+		return;
+	}
 	static float FrictionFraction = 0;
 	FrictionFraction += TimePassed;
 
