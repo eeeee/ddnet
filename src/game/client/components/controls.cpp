@@ -7,6 +7,7 @@
 #include <SDL.h>
 
 #include <engine/shared/config.h>
+#include <engine/serverbrowser.h>
 
 #include <game/collision.h>
 #include <game/client/gameclient.h>
@@ -28,22 +29,35 @@ CControls::CControls()
 	m_LastDummy = 0;
 	m_OtherFire = 0;
 
-	SDL_Init(SDL_INIT_JOYSTICK);
-	m_Joystick = SDL_JoystickOpen(0);
-	if( m_Joystick && SDL_JoystickNumAxes(m_Joystick) < NUM_JOYSTICK_AXES )
+#if !defined(__ANDROID__)
+	if (g_Config.m_InpJoystick)
+#endif
 	{
-		SDL_JoystickClose(m_Joystick);
-		m_Joystick = NULL;
-	}
+		SDL_Init(SDL_INIT_JOYSTICK);
+		m_Joystick = SDL_JoystickOpen(0);
+		if( m_Joystick && SDL_JoystickNumAxes(m_Joystick) < NUM_JOYSTICK_AXES )
+		{
+			SDL_JoystickClose(m_Joystick);
+			m_Joystick = NULL;
+		}
 
-	m_Gamepad = SDL_JoystickOpen(2);
+		m_Gamepad = SDL_JoystickOpen(2);
 
-	SDL_JoystickEventState(SDL_QUERY);
+		SDL_JoystickEventState(SDL_QUERY);
 
-	m_UsingGamepad = false;
+		m_UsingGamepad = false;
 #if defined(CONF_FAMILY_UNIX)
-	if( getenv("OUYA") )
-		m_UsingGamepad = true;
+		if( getenv("OUYA") )
+			m_UsingGamepad = true;
+#endif
+	}
+#if !defined(__ANDROID__)
+	else
+	{
+		m_Joystick = NULL;
+		m_Gamepad = NULL;
+		m_UsingGamepad = false;
+	}
 #endif
 }
 
@@ -94,10 +108,11 @@ void CControls::OnRelease()
 
 void CControls::OnPlayerDeath()
 {
-	m_LastData[g_Config.m_ClDummy].m_WantedWeapon = m_InputData[g_Config.m_ClDummy].m_WantedWeapon = 0;
-	for( int i = 0; i < NUM_WEAPONS; i++ )
-		m_AmmoCount[i] = 0;
-	m_JoystickTapTime = 0; // Do not launch hook on first tap
+  if (g_Config.m_ClResetWantedWeaponOnDeath)
+    m_LastData[g_Config.m_ClDummy].m_WantedWeapon = m_InputData[g_Config.m_ClDummy].m_WantedWeapon = 0;
+  for( int i = 0; i < NUM_WEAPONS; i++ )
+    m_AmmoCount[i] = 0;
+  m_JoystickTapTime = 0; // Do not launch hook on first tap
 }
 
 struct CInputState
@@ -110,6 +125,15 @@ struct CInputState
 static void ConKeyInputState(IConsole::IResult *pResult, void *pUserData)
 {
 	CInputState *pState = (CInputState *)pUserData;
+
+	CServerInfo Info;
+	pState->m_pControls->GameClient()->Client()->GetServerInfo(&Info);
+	bool IsGameTypeRace = str_find_nocase(Info.m_aGameType, "race") || str_find_nocase(Info.m_aGameType, "fastcap");
+	bool IsGameTypeDDRace = str_find_nocase(Info.m_aGameType, "ddrace") || str_find_nocase(Info.m_aGameType, "mkrace");
+
+	if ((IsGameTypeRace || IsGameTypeDDRace) && pState->m_pControls->GameClient()->m_Snap.m_SpecInfo.m_Active)
+		return;
+
 	if (g_Config.m_ClDummy)
 		*pState->m_pVariable2 = pResult->GetInteger(0);
 	else
@@ -119,6 +143,15 @@ static void ConKeyInputState(IConsole::IResult *pResult, void *pUserData)
 static void ConKeyInputCounter(IConsole::IResult *pResult, void *pUserData)
 {
 	CInputState *pState = (CInputState *)pUserData;
+
+	CServerInfo Info;
+	pState->m_pControls->GameClient()->Client()->GetServerInfo(&Info);
+	bool IsGameTypeRace = str_find_nocase(Info.m_aGameType, "race") || str_find_nocase(Info.m_aGameType, "fastcap");
+	bool IsGameTypeDDRace = str_find_nocase(Info.m_aGameType, "ddrace") || str_find_nocase(Info.m_aGameType, "mkrace");
+
+	if ((IsGameTypeRace || IsGameTypeDDRace) && pState->m_pControls->GameClient()->m_Snap.m_SpecInfo.m_Active)
+		return;
+
 	int *v;
 	if (g_Config.m_ClDummy)
 		v = pState->m_pVariable2;
@@ -403,7 +436,12 @@ void CControls::OnRender()
 		}
 	}
 
-	if( g_Config.m_ClAutoswitchWeaponsOutOfAmmo && m_pClient->m_Snap.m_pLocalCharacter )
+	CServerInfo Info;
+	GameClient()->Client()->GetServerInfo(&Info);
+	bool IsGameTypeRace = str_find_nocase(Info.m_aGameType, "race") || str_find_nocase(Info.m_aGameType, "fastcap");
+	bool IsGameTypeDDRace = str_find_nocase(Info.m_aGameType, "ddrace") || str_find_nocase(Info.m_aGameType, "mkrace");
+
+	if( g_Config.m_ClAutoswitchWeaponsOutOfAmmo && !IsGameTypeRace && !IsGameTypeDDRace && m_pClient->m_Snap.m_pLocalCharacter )
 	{
 		// Keep track of ammo count, we know weapon ammo only when we switch to that weapon, this is tracked on server and protocol does not track that
 		m_AmmoCount[m_pClient->m_Snap.m_pLocalCharacter->m_Weapon%NUM_WEAPONS] = m_pClient->m_Snap.m_pLocalCharacter->m_AmmoCount;

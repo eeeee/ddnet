@@ -88,6 +88,8 @@ CMenus::CMenus()
 	m_DoubleClickIndex = -1;
 
 	m_DDRacePage = PAGE_BROWSER;
+
+	m_DemoPlayerState = DEMOPLAYER_NONE;
 }
 
 vec4 CMenus::ButtonColorMul(const void *pID)
@@ -596,7 +598,7 @@ int CMenus::RenderMenubar(CUIRect r)
 		}
 
 		//Box.VSplitLeft(4.0f, 0, &Box);
-		Box.VSplitLeft(70.0f, &Button, &Box);
+		Box.VSplitLeft(60.0f, &Button, &Box);
 		static int s_LanButton=0;
 		if(DoButton_MenuTab(&s_LanButton, Localize("LAN"), m_ActivePage==PAGE_LAN, &Button, 0))
 		{
@@ -606,12 +608,22 @@ int CMenus::RenderMenubar(CUIRect r)
 		}
 
 		//box.VSplitLeft(4.0f, 0, &box);
-		Box.VSplitLeft(110.0f, &Button, &Box);
+		Box.VSplitLeft(100.0f, &Button, &Box);
 		static int s_FavoritesButton=0;
-		if(DoButton_MenuTab(&s_FavoritesButton, Localize("Favorites"), m_ActivePage==PAGE_FAVORITES, &Button, CUI::CORNER_TR))
+		if(DoButton_MenuTab(&s_FavoritesButton, Localize("Favorites"), m_ActivePage==PAGE_FAVORITES, &Button, 0))
 		{
 			ServerBrowser()->Refresh(IServerBrowser::TYPE_FAVORITES);
 			NewPage = PAGE_FAVORITES;
+			m_DoubleClickIndex = -1;
+		}
+
+		//box.VSplitLeft(4.0f, 0, &box);
+		Box.VSplitLeft(100.0f, &Button, &Box);
+		static int s_DDNetButton=0;
+		if(DoButton_MenuTab(&s_DDNetButton, Localize("DDNet"), m_ActivePage==PAGE_DDNET, &Button, CUI::CORNER_TR))
+		{
+			ServerBrowser()->Refresh(IServerBrowser::TYPE_DDNET);
+			NewPage = PAGE_DDNET;
 			m_DoubleClickIndex = -1;
 		}
 
@@ -827,7 +839,7 @@ void CMenus::OnInit()
 	if(g_Config.m_ClShowWelcome)
 	{
 		m_Popup = POPUP_LANGUAGE;
-		str_copy(g_Config.m_BrFilterString, "DDraceNetwork", sizeof(g_Config.m_BrFilterString));
+		str_copy(g_Config.m_BrFilterString, "Novice [DDraceNetwork]", sizeof(g_Config.m_BrFilterString));
 	}
 	g_Config.m_ClShowWelcome = 0;
 
@@ -863,15 +875,18 @@ int CMenus::Render()
 	static bool s_First = true;
 	if(s_First)
 	{
+		m_pClient->m_pSounds->Enqueue(CSounds::CHN_MUSIC, SOUND_MENU);
+		s_First = false;
+		m_DoubleClickIndex = -1;
+
 		if(g_Config.m_UiPage == PAGE_INTERNET)
 			ServerBrowser()->Refresh(IServerBrowser::TYPE_INTERNET);
 		else if(g_Config.m_UiPage == PAGE_LAN)
 			ServerBrowser()->Refresh(IServerBrowser::TYPE_LAN);
 		else if(g_Config.m_UiPage == PAGE_FAVORITES)
 			ServerBrowser()->Refresh(IServerBrowser::TYPE_FAVORITES);
-		m_pClient->m_pSounds->Enqueue(CSounds::CHN_MUSIC, SOUND_MENU);
-		s_First = false;
-		m_DoubleClickIndex = -1;
+		else if(g_Config.m_UiPage == PAGE_DDNET)
+			ServerBrowser()->Refresh(IServerBrowser::TYPE_DDNET);
 	}
 
 	if(Client()->State() == IClient::STATE_ONLINE)
@@ -949,6 +964,8 @@ int CMenus::Render()
 			RenderDemoList(MainView);
 		else if(g_Config.m_UiPage == PAGE_FAVORITES)
 			RenderServerbrowser(MainView);
+		else if(g_Config.m_UiPage == PAGE_DDNET)
+			RenderServerbrowser(MainView);
 		else if(g_Config.m_UiPage == PAGE_SETTINGS)
 			RenderSettings(MainView);
 	}
@@ -976,7 +993,8 @@ int CMenus::Render()
 			pButtonText = Localize("Abort");
 			if(Client()->MapDownloadTotalsize() > 0)
 			{
-				pTitle = Localize("Downloading map");
+				str_format(aBuf, sizeof(aBuf), "%s: %s", Localize("Downloading map"), Client()->MapDownloadName());
+				pTitle = aBuf;
 				pExtraText = "";
 			}
 		}
@@ -1072,7 +1090,7 @@ int CMenus::Render()
 		else if(m_Popup == POPUP_AUTOUPDATE)
 		{
 			pTitle = Localize("Auto-Update");
-			pExtraText = Localize("An update to DDNet client is available. Do you want to update now? This may restart the client. If an update fails, make sure the client has permissions to modify files.");
+			pExtraText = Localize("An update to DDNet client is available. Do you want to update now? This will restart the client. If an update fails, make sure the client has permissions to modify files.");
 			ExtraAlign = -1;
 		}
 #endif

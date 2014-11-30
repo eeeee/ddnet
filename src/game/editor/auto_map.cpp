@@ -53,40 +53,51 @@ void CAutoMapper::Load(const char* pTileName)
 				{
 					// new index
 					int ID = 0;
-					char aFlip[128] = "";
-					char aFlip2[128] = "";
+					char aOrientation1[128] = "";
+					char aOrientation2[128] = "";
+					char aOrientation3[128] = "";
 
-					sscanf(pLine, "Index %d %127s %127s", &ID, aFlip, aFlip2);
+					sscanf(pLine, "Index %d %127s %127s %127s", &ID, aOrientation1, aOrientation2, aOrientation3);
 
 					CIndexRule NewIndexRule;
 					NewIndexRule.m_ID = ID;
 					NewIndexRule.m_Flag = 0;
 					NewIndexRule.m_RandomValue = 0;
-					NewIndexRule.m_BaseTile = false;
+					NewIndexRule.m_DefaultRule = true;
 
-					if(str_length(aFlip) > 0)
+					if(str_length(aOrientation1) > 0)
 					{
-						if(!str_comp(aFlip, "XFLIP"))
+						if(!str_comp(aOrientation1, "XFLIP"))
 							NewIndexRule.m_Flag |= TILEFLAG_VFLIP;
-						else if(!str_comp(aFlip, "YFLIP"))
+						else if(!str_comp(aOrientation1, "YFLIP"))
 							NewIndexRule.m_Flag |= TILEFLAG_HFLIP;
+						else if(!str_comp(aOrientation1, "ROTATE"))
+							NewIndexRule.m_Flag |= TILEFLAG_ROTATE;
 					}
 
-					if(str_length(aFlip2) > 0)
+					if(str_length(aOrientation2) > 0)
 					{
-						if(!str_comp(aFlip2, "XFLIP"))
+						if(!str_comp(aOrientation2, "XFLIP"))
 							NewIndexRule.m_Flag |= TILEFLAG_VFLIP;
-						else if(!str_comp(aFlip2, "YFLIP"))
+						else if(!str_comp(aOrientation2, "YFLIP"))
 							NewIndexRule.m_Flag |= TILEFLAG_HFLIP;
+						else if(!str_comp(aOrientation2, "ROTATE"))
+							NewIndexRule.m_Flag |= TILEFLAG_ROTATE;
+					}
+
+					if(str_length(aOrientation3) > 0)
+					{
+						if(!str_comp(aOrientation3, "XFLIP"))
+							NewIndexRule.m_Flag |= TILEFLAG_VFLIP;
+						else if(!str_comp(aOrientation3, "YFLIP"))
+							NewIndexRule.m_Flag |= TILEFLAG_HFLIP;
+						else if(!str_comp(aOrientation3, "ROTATE"))
+							NewIndexRule.m_Flag |= TILEFLAG_ROTATE;
 					}
 
 					// add the index rule object and make it current
 					int ArrayID = pCurrentConf->m_aIndexRules.add(NewIndexRule);
 					pCurrentIndex = &pCurrentConf->m_aIndexRules[ArrayID];
-				}
-				else if(!str_comp_num(pLine, "BaseTile", 8) && pCurrentIndex)
-				{
-					pCurrentIndex->m_BaseTile = true;
 				}
 				else if(!str_comp_num(pLine, "Pos", 3) && pCurrentIndex)
 				{
@@ -112,6 +123,10 @@ void CAutoMapper::Load(const char* pTileName)
 				{
 					sscanf(pLine, "Random %d", &pCurrentIndex->m_RandomValue);
 				}
+				else if(!str_comp_num(pLine, "NoDefaultRule", 13) && pCurrentIndex)
+				{
+					pCurrentIndex->m_DefaultRule = false;
+				}
 			}
 		}
 	}
@@ -131,7 +146,7 @@ void CAutoMapper::Load(const char* pTileName)
 					break;
 				}
 			}
-			if(!Found)
+			if(!Found && m_lConfigs[h].m_aIndexRules[i].m_DefaultRule)
 			{
 				CPosRule NewPosRule = {0, 0, CPosRule::FULL, false};
 				m_lConfigs[h].m_aIndexRules[i].m_aRules.add(NewPosRule);
@@ -165,8 +180,6 @@ void CAutoMapper::Proceed(CLayerTiles *pLayer, int ConfigID)
 	if(!pConf->m_aIndexRules.size())
 		return;
 
-	int BaseTile = 1;
-
 	CLayerTiles newLayer(pLayer->m_Width, pLayer->m_Height);
 
 	for(int y = 0; y < pLayer->m_Height; y++)
@@ -178,24 +191,12 @@ void CAutoMapper::Proceed(CLayerTiles *pLayer, int ConfigID)
 			out->m_Flags = in->m_Flags;
 		}
 
-	// find base tile if there is one
-	for(int i = 0; i < pConf->m_aIndexRules.size(); ++i)
-	{
-		if(pConf->m_aIndexRules[i].m_BaseTile)
-		{
-			BaseTile = pConf->m_aIndexRules[i].m_ID;
-			break;
-		}
-	}
-
 	// auto map !
 	int MaxIndex = pLayer->m_Width*pLayer->m_Height;
 	for(int y = 0; y < pLayer->m_Height; y++)
 		for(int x = 0; x < pLayer->m_Width; x++)
 		{
 			CTile *pTile = &(newLayer.m_pTiles[y*pLayer->m_Width+x]);
-			if(pTile->m_Index != 0)
-				pTile->m_Index = BaseTile;
 			m_pEditor->m_Map.m_Modified = true;
 
 			if(y == 0 || y == pLayer->m_Height-1 || x == 0 || x == pLayer->m_Width-1)
@@ -203,9 +204,6 @@ void CAutoMapper::Proceed(CLayerTiles *pLayer, int ConfigID)
 
 			for(int i = 0; i < pConf->m_aIndexRules.size(); ++i)
 			{
-				if(pConf->m_aIndexRules[i].m_BaseTile)
-					continue;
-
 				bool RespectRules = true;
 				for(int j = 0; j < pConf->m_aIndexRules[i].m_aRules.size() && RespectRules; ++j)
 				{

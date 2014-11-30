@@ -63,7 +63,7 @@ public:
 	~CFileScore();
 
 	virtual void LoadScore(int ClientID);
-	virtual void MapPoints(int ClientID, const char* MapName);
+	virtual void MapInfo(int ClientID, const char* MapName);
 	virtual void MapVote(int ClientID, const char* MapName);
 	virtual void SaveScore(int ClientID, float Time,
 			float CpTime[NUM_CHECKPOINTS]);
@@ -79,7 +79,10 @@ public:
 
 	virtual void ShowTopPoints(IConsole::IResult *pResult, int ClientID, void *pUserData, int Debut);
 	virtual void ShowPoints(int ClientID, const char* pName, bool Search);
-	virtual void RandomUnfinishedMap(int ClientID);
+	virtual void RandomMap(int ClientID, int stars);
+	virtual void RandomUnfinishedMap(int ClientID, int stars);
+	virtual void SaveTeam(int Team, const char* Code, int ClientID);
+	virtual void LoadTeam(const char* Code, int ClientID);
 };
 
 #endif

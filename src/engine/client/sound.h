@@ -24,19 +24,36 @@ public:
 	// TODO: Refactor: clean this mess up
 	static IOHANDLE ms_File;
 	static int ReadData(void *pBuffer, int Size);
+	static int DecodeWV(int SampleID, const void *pData, unsigned DataSize);
+	static int DecodeOpus(int SampleID, const void *pData, unsigned DataSize);
 
 	virtual bool IsSoundEnabled() { return m_SoundEnabled != 0; }
 
 	virtual int LoadWV(const char *pFilename);
+	virtual int LoadWVFromMem(const void *pData, unsigned DataSize, bool FromEditor);
+	virtual int LoadOpus(const char *pFilename);
+	virtual int LoadOpusFromMem(const void *pData, unsigned DataSize, bool FromEditor);
+	virtual void UnloadSample(int SampleID);
+
+	virtual float GetSampleDuration(int SampleID); // in s
 
 	virtual void SetListenerPos(float x, float y);
 	virtual void SetChannel(int ChannelID, float Vol, float Pan);
 
-	int Play(int ChannelID, int SampleID, int Flags, float x, float y);
-	virtual int PlayAt(int ChannelID, int SampleID, int Flags, float x, float y);
-	virtual int Play(int ChannelID, int SampleID, int Flags);
+	virtual void SetVoiceVolume(CVoiceHandle Voice, float Volume);
+	virtual void SetVoiceFalloff(CVoiceHandle Voice, float Falloff);
+	virtual void SetVoiceLocation(CVoiceHandle Voice, float x, float y);
+	virtual void SetVoiceTimeOffset(CVoiceHandle Voice, float offset); // in s
+
+	virtual void SetVoiceCircle(CVoiceHandle Voice, float Radius);
+	virtual void SetVoiceRectangle(CVoiceHandle Voice, float Width, float Height);
+
+	CVoiceHandle Play(int ChannelID, int SampleID, int Flags, float x, float y);
+	virtual CVoiceHandle PlayAt(int ChannelID, int SampleID, int Flags, float x, float y);
+	virtual CVoiceHandle Play(int ChannelID, int SampleID, int Flags);
 	virtual void Stop(int SampleID);
 	virtual void StopAll();
+	virtual void StopVoice(CVoiceHandle Voice);
 };
 
 #endif

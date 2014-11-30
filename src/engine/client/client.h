@@ -74,9 +74,10 @@ class CClient : public IClient, public CDemoPlayer::IListner
 		PREDICTION_MARGIN=1000/50/2, // magic network prediction value
 	};
 
-	class CNetClient m_NetClient[2];
+	class CNetClient m_NetClient[3];
 	class CDemoPlayer m_DemoPlayer;
-	class CDemoRecorder m_DemoRecorder;
+	class CDemoRecorder m_DemoRecorder[RECORDER_MAX];
+	class CDemoEditor m_DemoEditor;
 	class CServerBrowser m_ServerBrowser;
 #if !defined(CONF_PLATFORM_MACOSX) && !defined(__ANDROID__)
 	class CAutoUpdate m_AutoUpdate;
@@ -107,6 +108,7 @@ class CClient : public IClient, public CDemoPlayer::IListner
 	int m_AckGameTick[2];
 	int m_CurrentRecvTick[2];
 	int m_RconAuthed[2];
+	char m_RconPassword[32];
 	int m_UseTempRconCommands;
 
 	// version-checking
@@ -118,6 +120,8 @@ class CClient : public IClient, public CDemoPlayer::IListner
 	//
 	char m_aCurrentMap[256];
 	unsigned m_CurrentMapCrc;
+
+	bool m_TimeoutCodeSent[2];
 
 	//
 	char m_aCmdConnect[256];
@@ -189,6 +193,9 @@ class CClient : public IClient, public CDemoPlayer::IListner
 	static void GraphicsThreadProxy(void *pThis) { ((CClient*)pThis)->GraphicsThread(); }
 	void GraphicsThread();
   vec3 GetColorV3(int v);
+
+	char m_aDDNetSrvListToken[4];
+	bool m_DDNetSrvListTokenSet;
 
 public:
 	void MainLoop();
@@ -283,6 +290,7 @@ public:
 	void ProcessServerPacket(CNetChunk *pPacket);
 	void ProcessServerPacketDummy(CNetChunk *pPacket);
 
+	virtual const char *MapDownloadName() { return m_aMapdownloadName; }
 	virtual int MapDownloadAmount() { return m_MapdownloadAmount; }
 	virtual int MapDownloadTotalsize() { return m_MapdownloadTotalsize; }
 
@@ -320,13 +328,18 @@ public:
 	static void Con_AddDemoMarker(IConsole::IResult *pResult, void *pUserData);
 	static void ConchainServerBrowserUpdate(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData);
 
+	static void Con_DemoSlice(IConsole::IResult *pResult, void *pUserData);
+	static void Con_DemoSliceBegin(IConsole::IResult *pResult, void *pUserData);
+	static void Con_DemoSliceEnd(IConsole::IResult *pResult, void *pUserData);
+
 	void RegisterCommands();
 
 	const char *DemoPlayer_Play(const char *pFilename, int StorageType);
-	void DemoRecorder_Start(const char *pFilename, bool WithTimestamp);
+	void DemoRecorder_Start(const char *pFilename, bool WithTimestamp, int Recorder);
 	void DemoRecorder_HandleAutoStart();
-	void DemoRecorder_Stop();
-	void DemoRecorder_AddDemoMarker();
+	void DemoRecorder_Stop(int Recorder);
+	void DemoRecorder_AddDemoMarker(int Recorder);
+	class IDemoRecorder *DemoRecorder(int Recorder);
 
 	void AutoScreenshot_Start();
 	void AutoScreenshot_Cleanup();
@@ -339,6 +352,12 @@ public:
 	virtual int GetCurrentMapCrc();
 	virtual const char* RaceRecordStart(const char *pFilename);
 	virtual void RaceRecordStop();
-	virtual bool DemoIsRecording();
+	virtual bool RaceRecordIsRecording();
+
+	virtual void DemoSliceBegin();
+	virtual void DemoSliceEnd();
+	virtual void DemoSlice(const char *pDstPath);
+
+	void RequestDDNetSrvList();
 };
 #endif

@@ -11,15 +11,18 @@
 class CPlayer
 {
 	MACRO_ALLOC_POOL_ID()
+	
+	friend class CSaveTee;
 
 public:
 	CPlayer(CGameContext *pGameServer, int ClientID, int Team);
 	~CPlayer();
 
-	void Init(int CID);
+	void Reset();
 
 	void TryRespawn();
 	void Respawn();
+	CCharacter* ForceSpawn(vec2 Pos); // required for loading savegames
 	void SetTeam(int Team, bool DoChatMsg=true);
 	int GetTeam() const { return m_Team; };
 	int GetCID() const { return m_ClientID; };
@@ -71,6 +74,8 @@ public:
 	int m_LastCommandPos;
 	int m_LastWhisperTo;
 
+	int m_SendVoteIndex;
+
 	// TODO: clean this up
 	struct
 	{
@@ -107,6 +112,7 @@ public:
 
 private:
 	CCharacter *m_pCharacter;
+	int m_NumInputs;
 	CGameContext *m_pGameServer;
 
 	CGameContext *GameServer() const { return m_pGameServer; }
@@ -132,6 +138,7 @@ public:
 	int m_Paused;
 	bool m_DND;
 	int64 m_NextPauseTick;
+	char m_TimeoutCode[64];
 
 	void ProcessPause();
 	int m_ForcePauseTime;
@@ -142,6 +149,7 @@ public:
 	int m_ClientVersion;
 	bool m_ShowOthers;
 	bool m_ShowAll;
+	bool m_SpecTeam;
 	bool m_NinjaJetpack;
 	bool m_Afk;
 
@@ -161,6 +169,8 @@ public:
 	int m_TimerType;
 	int m_DefEmote;
 	int m_DefEmoteReset;
+	bool m_Halloween;
+	bool m_FirstPacket;
 #if defined(CONF_SQL)
 	int64 m_LastSQLQuery;
 #endif

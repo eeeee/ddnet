@@ -32,6 +32,8 @@ class CCharacter : public CEntity
 {
 	MACRO_ALLOC_POOL_ID()
 
+	friend class CSaveTee; // need to use core
+	
 public:
 	//character's size
 	static const int ms_PhysSize = 28;
@@ -192,10 +194,8 @@ public:
 		DISABLE_HIT_RIFLE=8
 	};
 	int m_Hit;
-	int m_Collision;
 	int m_TuneZone;
 	int m_TuneZoneOld;
-	int m_Hook;
 	int m_PainSoundTimer;
 	int m_LastMove;
 	int m_StartTime;

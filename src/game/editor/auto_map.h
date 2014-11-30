@@ -25,7 +25,7 @@ class CAutoMapper
 		array<CPosRule> m_aRules;
 		int m_Flag;
 		int m_RandomValue;
-		bool m_BaseTile;
+		bool m_DefaultRule;
 	};
 
 	struct CConfiguration

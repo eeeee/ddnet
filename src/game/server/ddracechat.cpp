@@ -22,9 +22,9 @@ void CGameContext::ConCredits(IConsole::IResult *pResult, void *pUserData)
 	pSelf->Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "credit",
 		"Many ideas from the great community,");
 	pSelf->Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "credit",
-		"64 player support from eeeee's ddrace64.");
+		"Help and code by eeeee, HMH, east, CookieMichal,");
 	pSelf->Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "credit",
-		"Lots of awesome help and code by HMH and CookiMichal.");
+		"Savander, laxa, Tobii, BeaR, Wohoo, nuborn, DoNe & others.");
 	pSelf->Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "credit",
 		"Based on DDRace by the DDRace developers,");
 	pSelf->Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "credit",
@@ -298,7 +298,7 @@ void CGameContext::ConRules(IConsole::IResult *pResult, void *pUserData)
 				"No Rules Defined, Kill em all!!");
 }
 
-void CGameContext::ConTogglePause(IConsole::IResult *pResult, void *pUserData)
+void CGameContext::ConToggleSpec(IConsole::IResult *pResult, void *pUserData)
 {
 	CGameContext *pSelf = (CGameContext *) pUserData;
 	if (!CheckClientID(pResult->m_ClientID))
@@ -307,7 +307,7 @@ void CGameContext::ConTogglePause(IConsole::IResult *pResult, void *pUserData)
 
 	if(!g_Config.m_SvPauseable)
 	{
-		ConToggleSpec(pResult, pUserData);
+		ConTogglePause(pResult, pUserData);
 		return;
 	}
 
@@ -318,12 +318,12 @@ void CGameContext::ConTogglePause(IConsole::IResult *pResult, void *pUserData)
 	if (pPlayer->GetCharacter() == 0)
 	{
 	pSelf->Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "pause",
-	"You can't pause while you are dead/a spectator.");
+	"You can't spec while you are dead/a spectator.");
 	return;
 	}
 	if (pPlayer->m_Paused == CPlayer::PAUSED_SPEC && g_Config.m_SvPauseable)
 	{
-		ConToggleSpec(pResult, pUserData);
+		ConTogglePause(pResult, pUserData);
 		return;
 	}
 
@@ -337,7 +337,7 @@ void CGameContext::ConTogglePause(IConsole::IResult *pResult, void *pUserData)
 	pPlayer->m_Paused = (pPlayer->m_Paused == CPlayer::PAUSED_PAUSED) ? CPlayer::PAUSED_NONE : CPlayer::PAUSED_PAUSED;
 }
 
-void CGameContext::ConToggleSpec(IConsole::IResult *pResult, void *pUserData)
+void CGameContext::ConTogglePause(IConsole::IResult *pResult, void *pUserData)
 {
 	CGameContext *pSelf = (CGameContext *)pUserData;
 	if(!CheckClientID(pResult->m_ClientID)) return;
@@ -350,7 +350,7 @@ void CGameContext::ConToggleSpec(IConsole::IResult *pResult, void *pUserData)
 	if (pPlayer->GetCharacter() == 0)
 	{
 	pSelf->Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "spec",
-	"You can't spec while you are dead/a spectator.");
+	"You can't pause while you are dead/a spectator.");
 	return;
 	}
 
@@ -538,7 +538,7 @@ void CGameContext::ConMap(IConsole::IResult *pResult, void *pUserData)
 #endif
 }
 
-void CGameContext::ConMapPoints(IConsole::IResult *pResult, void *pUserData)
+void CGameContext::ConMapInfo(IConsole::IResult *pResult, void *pUserData)
 {
 	CGameContext *pSelf = (CGameContext *) pUserData;
 	if (!CheckClientID(pResult->m_ClientID))
@@ -555,9 +555,102 @@ void CGameContext::ConMapPoints(IConsole::IResult *pResult, void *pUserData)
 #endif
 
 	if (pResult->NumArguments() > 0)
-		pSelf->Score()->MapPoints(pResult->m_ClientID, pResult->GetString(0));
+		pSelf->Score()->MapInfo(pResult->m_ClientID, pResult->GetString(0));
 	else
-		pSelf->Score()->MapPoints(pResult->m_ClientID, g_Config.m_SvMap);
+		pSelf->Score()->MapInfo(pResult->m_ClientID, g_Config.m_SvMap);
+
+#if defined(CONF_SQL)
+	if(g_Config.m_SvUseSQL)
+		pPlayer->m_LastSQLQuery = pSelf->Server()->Tick();
+#endif
+}
+
+void CGameContext::ConTimeout(IConsole::IResult *pResult, void *pUserData)
+{
+	CGameContext *pSelf = (CGameContext *) pUserData;
+	if (!CheckClientID(pResult->m_ClientID))
+		return;
+
+	CPlayer *pPlayer = pSelf->m_apPlayers[pResult->m_ClientID];
+	if (!pPlayer)
+		return;
+
+	for(int i = 0; i < pSelf->Server()->MaxClients(); i++)
+	{
+		if (i == pResult->m_ClientID) continue;
+		if (!pSelf->m_apPlayers[i]) continue;
+		if (str_comp(pSelf->m_apPlayers[i]->m_TimeoutCode, pResult->GetString(0))) continue;
+		if (((CServer *)pSelf->Server())->m_NetServer.SetTimedOut(i, pResult->m_ClientID))
+		{
+			((CServer *)pSelf->Server())->DelClientCallback(pResult->m_ClientID, "Timeout Protection used", ((CServer *)pSelf->Server()));
+			((CServer *)pSelf->Server())->m_aClients[i].m_Authed = CServer::AUTHED_NO;
+			if (pSelf->m_apPlayers[i]->GetCharacter())
+				((CGameContext *)(((CServer *)pSelf->Server())->GameServer()))->SendTuningParams(i, pSelf->m_apPlayers[i]->GetCharacter()->m_TuneZone);
+			return;
+		}
+	}
+
+	((CServer *)pSelf->Server())->m_NetServer.SetTimeoutProtected(pResult->m_ClientID);
+	str_copy(pPlayer->m_TimeoutCode, pResult->GetString(0), sizeof(pPlayer->m_TimeoutCode));
+}
+
+void CGameContext::ConSave(IConsole::IResult *pResult, void *pUserData)
+{
+	CGameContext *pSelf = (CGameContext *) pUserData;
+	if (!CheckClientID(pResult->m_ClientID))
+		return;
+
+	CPlayer *pPlayer = pSelf->m_apPlayers[pResult->m_ClientID];
+	if (!pPlayer)
+		return;
+
+#if defined(CONF_SQL)
+	if(!g_Config.m_SvSaveGames)
+	{
+		pSelf->SendChatTarget(pResult->m_ClientID, "Save-function is disabled on this server");
+		return;
+	}
+
+	if(g_Config.m_SvUseSQL)
+		if(pPlayer->m_LastSQLQuery + pSelf->Server()->TickSpeed() >= pSelf->Server()->Tick())
+			return;
+#endif
+
+	int Team = ((CGameControllerDDRace*) pSelf->m_pController)->m_Teams.m_Core.Team(pResult->m_ClientID);
+	pSelf->Score()->SaveTeam(Team, pResult->GetString(0), pResult->m_ClientID);
+
+#if defined(CONF_SQL)
+	if(g_Config.m_SvUseSQL)
+		pPlayer->m_LastSQLQuery = pSelf->Server()->Tick();
+#endif
+}
+
+void CGameContext::ConLoad(IConsole::IResult *pResult, void *pUserData)
+{
+	CGameContext *pSelf = (CGameContext *) pUserData;
+	if (!CheckClientID(pResult->m_ClientID))
+		return;
+
+	CPlayer *pPlayer = pSelf->m_apPlayers[pResult->m_ClientID];
+	if (!pPlayer)
+		return;
+
+#if defined(CONF_SQL)
+	if(!g_Config.m_SvSaveGames)
+	{
+		pSelf->SendChatTarget(pResult->m_ClientID, "Save-function is disabled on this server");
+		return;
+	}
+
+	if(g_Config.m_SvUseSQL)
+		if(pPlayer->m_LastSQLQuery + pSelf->Server()->TickSpeed() >= pSelf->Server()->Tick())
+			return;
+#endif
+
+	if (pResult->NumArguments() > 0)
+		pSelf->Score()->LoadTeam(pResult->GetString(0), pResult->m_ClientID);
+	else
+		return;
 
 #if defined(CONF_SQL)
 	if(g_Config.m_SvUseSQL)
@@ -959,6 +1052,22 @@ void CGameContext::ConShowAll(IConsole::IResult *pResult, void *pUserData)
 		pPlayer->m_ShowAll = !pPlayer->m_ShowAll;
 }
 
+void CGameContext::ConSpecTeam(IConsole::IResult *pResult, void *pUserData)
+{
+	CGameContext *pSelf = (CGameContext *) pUserData;
+	if (!CheckClientID(pResult->m_ClientID))
+		return;
+
+	CPlayer *pPlayer = pSelf->m_apPlayers[pResult->m_ClientID];
+	if (!pPlayer)
+		return;
+
+	if (pResult->NumArguments())
+		pPlayer->m_SpecTeam = pResult->GetInteger(0);
+	else
+		pPlayer->m_SpecTeam = !pPlayer->m_SpecTeam;
+}
+
 bool CheckClientID(int ClientID)
 {
 	dbg_assert(ClientID >= 0 || ClientID < MAX_CLIENTS,
@@ -1101,7 +1210,29 @@ void CGameContext::ConSetTimerType(IConsole::IResult *pResult, void *pUserData)
 	}
 	pSelf->Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD,"timer",aBuf);
 }
+void CGameContext::ConProtectedKill(IConsole::IResult *pResult, void *pUserData){
+	CGameContext *pSelf = (CGameContext *) pUserData;
+	if (!CheckClientID(pResult->m_ClientID))
+		return;
+	CPlayer *pPlayer = pSelf->m_apPlayers[pResult->m_ClientID];
+	if (!pPlayer)
+		return;
+	CCharacter* pChr = pPlayer->GetCharacter();
+	if (!pChr)
+		return;
 
+	int CurrTime = (pSelf->Server()->Tick() - pChr->m_StartTime) / pSelf->Server()->TickSpeed();
+	if(g_Config.m_SvKillProtection != 0 && CurrTime >= (60 * g_Config.m_SvKillProtection) && pChr->m_DDRaceState == DDRACE_STARTED)
+	{
+			pPlayer->KillCharacter(WEAPON_SELF);
+
+			//char aBuf[64];
+			//str_format(aBuf, sizeof(aBuf), "You killed yourself in: %s%d:%s%d",
+			//		((CurrTime / 60) > 9) ? "" : "0", CurrTime / 60,
+			//		((CurrTime % 60) > 9) ? "" : "0", CurrTime % 60);
+			//pSelf->SendChatTarget(pResult->m_ClientID, aBuf);
+	}
+}
 #if defined(CONF_SQL)
 void CGameContext::ConPoints(IConsole::IResult *pResult, void *pUserData)
 {

@@ -44,6 +44,7 @@
 #include "components/killmessages.h"
 #include "components/mapimages.h"
 #include "components/maplayers.h"
+#include "components/mapsounds.h"
 #include "components/menus.h"
 #include "components/motd.h"
 #include "components/particles.h"
@@ -94,6 +95,8 @@ static CMapImages gs_MapImages;
 static CMapLayers gs_MapLayersBackGround(CMapLayers::TYPE_BACKGROUND);
 static CMapLayers gs_MapLayersForeGround(CMapLayers::TYPE_FOREGROUND);
 
+static CMapSounds gs_MapSounds;
+
 static CRaceDemo gs_RaceDemo;
 static CGhost gs_Ghost;
 
@@ -119,7 +122,6 @@ void CGameClient::OnConsoleInit()
 	m_pConsole = Kernel()->RequestInterface<IConsole>();
 	m_pStorage = Kernel()->RequestInterface<IStorage>();
 	m_pDemoPlayer = Kernel()->RequestInterface<IDemoPlayer>();
-	m_pDemoRecorder = Kernel()->RequestInterface<IDemoRecorder>();
 	m_pServerBrowser = Kernel()->RequestInterface<IServerBrowser>();
 #if !defined(CONF_PLATFORM_MACOSX) && !defined(__ANDROID__)
 	m_pAutoUpdate = Kernel()->RequestInterface<IAutoUpdate>();
@@ -149,6 +151,8 @@ void CGameClient::OnConsoleInit()
 	m_pMapLayersBackGround = &::gs_MapLayersBackGround;
 	m_pMapLayersForeGround = &::gs_MapLayersForeGround;
 
+	m_pMapSounds = &::gs_MapSounds;
+
 	m_pRaceDemo = &::gs_RaceDemo;
 	m_pGhost = &::gs_Ghost;
 
@@ -165,6 +169,7 @@ void CGameClient::OnConsoleInit()
 	m_All.Add(m_pVoting);
 	m_All.Add(m_pParticles); // doesn't render anything, just updates all the particles
 	m_All.Add(m_pRaceDemo);
+	m_All.Add(m_pMapSounds);
 
 	m_All.Add(&gs_MapLayersBackGround); // first to render
 	m_All.Add(&m_pParticles->m_RenderTrail);
@@ -321,6 +326,27 @@ void CGameClient::OnInit()
 	if(!g_Config.m_ClDDRaceBindsSet && g_Config.m_ClDDRaceBinds)
 		gs_Binds.SetDDRaceBinds(true);
 
+	if(g_Config.m_ClTimeoutCode[0] == '\0' || str_comp(g_Config.m_ClTimeoutCode, "hGuEYnfxicsXGwFq") == 0)
+	{
+		for(unsigned int i = 0; i < 16; i++)
+		{
+			if (rand() % 2)
+				g_Config.m_ClTimeoutCode[i] = (rand() % 26) + 97;
+			else
+				g_Config.m_ClTimeoutCode[i] = (rand() % 26) + 65;
+		}
+	}
+
+	if(g_Config.m_ClDummyTimeoutCode[0] == '\0' || str_comp(g_Config.m_ClDummyTimeoutCode, "hGuEYnfxicsXGwFq") == 0)
+	{
+		for(unsigned int i = 0; i < 16; i++)
+		{
+			if (rand() % 2)
+				g_Config.m_ClDummyTimeoutCode[i] = (rand() % 26) + 97;
+			else
+				g_Config.m_ClDummyTimeoutCode[i] = (rand() % 26) + 65;
+		}
+	}
 	Client()->DemoPlayer_Play("demo.demo", IStorage::TYPE_ALL);
 }
 
@@ -676,9 +702,15 @@ void CGameClient::OnMessage(int MsgId, CUnpacker *pUnpacker, bool IsDummy)
 		if(pMsg->m_SoundID == SOUND_CTF_DROP || pMsg->m_SoundID == SOUND_CTF_RETURN ||
 			pMsg->m_SoundID == SOUND_CTF_CAPTURE || pMsg->m_SoundID == SOUND_CTF_GRAB_EN ||
 			pMsg->m_SoundID == SOUND_CTF_GRAB_PL)
-			g_GameClient.m_pSounds->Enqueue(CSounds::CHN_GLOBAL, pMsg->m_SoundID);
+		{
+			if(g_Config.m_SndGame)
+				g_GameClient.m_pSounds->Enqueue(CSounds::CHN_GLOBAL, pMsg->m_SoundID);
+		}
 		else
-			g_GameClient.m_pSounds->Play(CSounds::CHN_GLOBAL, pMsg->m_SoundID, 1.0f);
+		{
+			if(g_Config.m_SndGame)
+				g_GameClient.m_pSounds->Play(CSounds::CHN_GLOBAL, pMsg->m_SoundID, 1.0f);
+		}
 	}
 	else if(MsgId == NETMSGTYPE_SV_TEAMSSTATE)
 	{
@@ -730,7 +762,10 @@ void CGameClient::OnShutdown()
 	m_pRaceDemo->OnShutdown();
 }
 
-void CGameClient::OnEnterGame() {}
+void CGameClient::OnEnterGame()
+{
+	g_GameClient.m_pEffects->ResetDamageIndicator();
+}
 
 void CGameClient::OnGameOver()
 {
@@ -789,7 +824,8 @@ void CGameClient::ProcessEvents()
 		else if(Item.m_Type == NETEVENTTYPE_SOUNDWORLD)
 		{
 			CNetEvent_SoundWorld *ev = (CNetEvent_SoundWorld *)pData;
-			g_GameClient.m_pSounds->PlayAt(CSounds::CHN_WORLD, ev->m_SoundID, 1.0f, vec2(ev->m_X, ev->m_Y));
+			if(g_Config.m_SndGame && (ev->m_SoundID != SOUND_GUN_FIRE || g_Config.m_SndGun))
+				g_GameClient.m_pSounds->PlayAt(CSounds::CHN_WORLD, ev->m_SoundID, 1.0f, vec2(ev->m_X, ev->m_Y));
 		}
 	}
 }
@@ -1023,7 +1059,7 @@ void CGameClient::OnNewSnapshot()
 	{
 		for(int i = 0; i < MAX_CLIENTS-k-1; i++)
 		{
-			if(m_Snap.m_paInfoByName[i+1] && (!m_Snap.m_paInfoByName[i] || str_comp(m_aClients[m_Snap.m_paInfoByName[i]->m_ClientID].m_aName, m_aClients[m_Snap.m_paInfoByName[i+1]->m_ClientID].m_aName) > 0))
+			if(m_Snap.m_paInfoByName[i+1] && (!m_Snap.m_paInfoByName[i] || str_comp_nocase(m_aClients[m_Snap.m_paInfoByName[i]->m_ClientID].m_aName, m_aClients[m_Snap.m_paInfoByName[i+1]->m_ClientID].m_aName) > 0))
 			{
 				const CNetObj_PlayerInfo *pTmp = m_Snap.m_paInfoByName[i];
 				m_Snap.m_paInfoByName[i] = m_Snap.m_paInfoByName[i+1];
@@ -1048,16 +1084,16 @@ void CGameClient::OnNewSnapshot()
 	}
 
 	// sort player infos by team
-	int Teams[3] = { TEAM_RED, TEAM_BLUE, TEAM_SPECTATORS };
+	//int Teams[3] = { TEAM_RED, TEAM_BLUE, TEAM_SPECTATORS };
 	int Index = 0;
-	for(int Team = 0; Team < 3; ++Team)
-	{
-		for(int i = 0; i < MAX_CLIENTS && Index < MAX_CLIENTS; ++i)
-		{
-			if(m_Snap.m_paPlayerInfos[i] && m_Snap.m_paPlayerInfos[i]->m_Team == Teams[Team])
-				m_Snap.m_paInfoByTeam[Index++] = m_Snap.m_paPlayerInfos[i];
-		}
-	}
+	//for(int Team = 0; Team < 3; ++Team)
+	//{
+	//	for(int i = 0; i < MAX_CLIENTS && Index < MAX_CLIENTS; ++i)
+	//	{
+	//		if(m_Snap.m_paPlayerInfos[i] && m_Snap.m_paPlayerInfos[i]->m_Team == Teams[Team])
+	//			m_Snap.m_paInfoByTeam[Index++] = m_Snap.m_paPlayerInfos[i];
+	//	}
+	//}
 
 	// sort player infos by DDRace Team (and score inbetween)
 	Index = 0;
@@ -1084,7 +1120,14 @@ void CGameClient::OnNewSnapshot()
 	}
 
 	// add tuning to demo
-	if(DemoRecorder()->IsRecording() && mem_comp(&StandardTuning, &m_Tuning[g_Config.m_ClDummy], sizeof(CTuningParams)) != 0)
+	bool AnyRecording = false;
+	for(int i = 0; i < RECORDER_MAX; i++)
+		if(DemoRecorder(i)->IsRecording())
+		{
+			AnyRecording = true;
+			break;
+		}
+	if(AnyRecording && mem_comp(&StandardTuning, &m_Tuning[g_Config.m_ClDummy], sizeof(CTuningParams)) != 0)
 	{
 		CMsgPacker Msg(NETMSGTYPE_SV_TUNEPARAMS);
 		int *pParams = (int *)&m_Tuning[g_Config.m_ClDummy];
@@ -1217,7 +1260,9 @@ void CGameClient::OnPredict()
 			{
 				vec2 Pos = World.m_apCharacters[m_Snap.m_LocalClientID]->m_Pos;
 				int Events = World.m_apCharacters[m_Snap.m_LocalClientID]->m_TriggeredEvents;
-				if(Events&COREEVENT_GROUND_JUMP) g_GameClient.m_pSounds->PlayAndRecord(CSounds::CHN_WORLD, SOUND_PLAYER_JUMP, 1.0f, Pos);
+				if(Events&COREEVENT_GROUND_JUMP)
+					if(g_Config.m_SndGame)
+						g_GameClient.m_pSounds->PlayAndRecord(CSounds::CHN_WORLD, SOUND_PLAYER_JUMP, 1.0f, Pos);
 
 				/*if(events&COREEVENT_AIR_JUMP)
 				{
@@ -1227,8 +1272,12 @@ void CGameClient::OnPredict()
 
 				//if(events&COREEVENT_HOOK_LAUNCH) snd_play_random(CHN_WORLD, SOUND_HOOK_LOOP, 1.0f, pos);
 				//if(events&COREEVENT_HOOK_ATTACH_PLAYER) snd_play_random(CHN_WORLD, SOUND_HOOK_ATTACH_PLAYER, 1.0f, pos);
-				if(Events&COREEVENT_HOOK_ATTACH_GROUND) g_GameClient.m_pSounds->PlayAndRecord(CSounds::CHN_WORLD, SOUND_HOOK_ATTACH_GROUND, 1.0f, Pos);
-				if(Events&COREEVENT_HOOK_HIT_NOHOOK) g_GameClient.m_pSounds->PlayAndRecord(CSounds::CHN_WORLD, SOUND_HOOK_NOATTACH, 1.0f, Pos);
+				if(Events&COREEVENT_HOOK_ATTACH_GROUND)
+					if(g_Config.m_SndGame)
+						g_GameClient.m_pSounds->PlayAndRecord(CSounds::CHN_WORLD, SOUND_HOOK_ATTACH_GROUND, 1.0f, Pos);
+				if(Events&COREEVENT_HOOK_HIT_NOHOOK)
+					if(g_Config.m_SndGame)
+						g_GameClient.m_pSounds->PlayAndRecord(CSounds::CHN_WORLD, SOUND_HOOK_NOATTACH, 1.0f, Pos);
 				//if(events&COREEVENT_HOOK_RETRACT) snd_play_random(CHN_WORLD, SOUND_PLAYER_JUMP, 1.0f, pos);
 			}
 		}
@@ -1343,7 +1392,7 @@ void CGameClient::SendInfo(bool Start)
 		Msg.m_ColorFeet = g_Config.m_PlayerColorFeet;
 		CMsgPacker Packer(Msg.MsgID());
 		Msg.Pack(&Packer);
-		Client()->SendMsgExY(&Packer, MSGFLAG_VITAL,false, 0);
+		Client()->SendMsgExY(&Packer, MSGFLAG_VITAL, false, 0);
 	}
 	else
 	{
@@ -1357,7 +1406,7 @@ void CGameClient::SendInfo(bool Start)
 		Msg.m_ColorFeet = g_Config.m_PlayerColorFeet;
 		CMsgPacker Packer(Msg.MsgID());
 		Msg.Pack(&Packer);
-		Client()->SendMsgExY(&Packer, MSGFLAG_VITAL,false, 0);
+		Client()->SendMsgExY(&Packer, MSGFLAG_VITAL, false, 0);
 
 		// activate timer to resend the info if it gets filtered
 		if(!m_LastSendInfo || m_LastSendInfo+time_freq()*5 < time_get())
@@ -1379,7 +1428,7 @@ void CGameClient::SendDummyInfo(bool Start)
 		Msg.m_ColorFeet = g_Config.m_DummyColorFeet;
 		CMsgPacker Packer(Msg.MsgID());
 		Msg.Pack(&Packer);
-		Client()->SendMsgExY(&Packer, MSGFLAG_VITAL,false, 1);
+		Client()->SendMsgExY(&Packer, MSGFLAG_VITAL, false, 1);
 	}
 	else
 	{

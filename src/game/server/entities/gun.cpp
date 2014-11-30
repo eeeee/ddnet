@@ -71,7 +71,7 @@ void CGun::Fire()
 	for (int i = 0; i < Num; i++)
 	{
 		CCharacter *Target = Ents[i];
-		if (Target->Teams()->m_Core.GetSolo(Target->GetPlayer()->GetCID()))
+		if (Target->IsAlive() && Target->Teams()->m_Core.GetSolo(Target->GetPlayer()->GetCID()))
 		{
 			if (IdInTeam[Target->Team()] != i)
 			{
@@ -117,7 +117,7 @@ void CGun::Snap(int SnappingClient)
 
 	CCharacter *Char = GameServer()->GetPlayerChar(SnappingClient);
 
-	if((GameServer()->m_apPlayers[SnappingClient]->GetTeam() == -1
+	if(SnappingClient > -1 && (GameServer()->m_apPlayers[SnappingClient]->GetTeam() == -1
 				|| GameServer()->m_apPlayers[SnappingClient]->m_Paused)
 			&& GameServer()->m_apPlayers[SnappingClient]->m_SpectatorID != SPEC_FREEVIEW)
 		Char = GameServer()->GetPlayerChar(GameServer()->m_apPlayers[SnappingClient]->m_SpectatorID);

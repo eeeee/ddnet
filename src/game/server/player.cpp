@@ -8,6 +8,7 @@
 #include <engine/server/server.h>
 #include "gamecontext.h"
 #include <game/gamecore.h>
+#include <game/version.h>
 #include <game/server/teams.h>
 #include "gamemodes/DDRace.h"
 #include <stdio.h>
@@ -21,22 +22,37 @@ IServer *CPlayer::Server() const { return m_pGameServer->Server(); }
 CPlayer::CPlayer(CGameContext *pGameServer, int ClientID, int Team)
 {
 	m_pGameServer = pGameServer;
+	m_ClientID = ClientID;
+	m_Team = GameServer()->m_pController->ClampTeam(Team);
+	m_pCharacter = 0;
+	m_NumInputs = 0;
+	Reset();
+}
+
+CPlayer::~CPlayer()
+{
+	delete m_pCharacter;
+	m_pCharacter = 0;
+}
+
+void CPlayer::Reset()
+{
 	m_RespawnTick = Server()->Tick();
 	m_DieTick = Server()->Tick();
 	m_ScoreStartTick = Server()->Tick();
+	if (m_pCharacter)
+		delete m_pCharacter;
 	m_pCharacter = 0;
-	m_ClientID = ClientID;
-	m_Team = GameServer()->m_pController->ClampTeam(Team);
 	m_SpectatorID = SPEC_FREEVIEW;
 	m_LastActionTick = Server()->Tick();
 	m_TeamChangeTick = Server()->Tick();
 
-	int* idMap = Server()->GetIdMap(ClientID);
+	int* idMap = Server()->GetIdMap(m_ClientID);
 	for (int i = 1;i < VANILLA_MAX_CLIENTS;i++)
 	{
 		idMap[i] = -1;
 	}
-	idMap[0] = ClientID;
+	idMap[0] = m_ClientID;
 
 	// DDRace
 
@@ -51,13 +67,17 @@ CPlayer::CPlayer(CGameContext *pGameServer, int ClientID, int Team)
 	m_Afk = false;
 	m_LastWhisperTo = -1;
 	m_LastSetSpectatorMode = 0;
-	
+	m_TimeoutCode[0] = '\0';
+
 	m_TuneZone = 0;
 	m_TuneZoneOld = m_TuneZone;
+	m_Halloween = false;
+	m_FirstPacket = true;
 
-	//New Year
+	m_SendVoteIndex = -1;
+
 	if (g_Config.m_SvEvents)
-	{	
+	{
 		time_t rawtime;
 		struct tm* timeinfo;
 		char d[16], m[16], y[16];
@@ -69,15 +89,28 @@ CPlayer::CPlayer(CGameContext *pGameServer, int ClientID, int Team)
 		strftime (y,sizeof(y),"%Y",timeinfo);
 		dd = atoi(d);
 		mm = atoi(m);
-		m_DefEmote = ((mm == 12 && dd == 31) || (mm == 1 && dd == 1)) ? EMOTE_HAPPY : EMOTE_NORMAL;
+		if ((mm == 12 && dd == 31) || (mm == 1 && dd == 1))
+		{ // New Year
+			m_DefEmote = EMOTE_HAPPY;
+		}
+		else if ((mm == 10 && dd == 31) || (mm == 11 && dd == 1))
+		{ // Halloween
+			m_DefEmote = EMOTE_ANGRY;
+			m_Halloween = true;
+		}
+		else
+		{
+			m_DefEmote = EMOTE_NORMAL;
+		}
 	}
 	m_DefEmoteReset = -1;
 
-	GameServer()->Score()->PlayerData(ClientID)->Reset();
+	GameServer()->Score()->PlayerData(m_ClientID)->Reset();
 
 	m_ClientVersion = VERSION_VANILLA;
 	m_ShowOthers = g_Config.m_SvShowOthersDefault;
 	m_ShowAll = g_Config.m_SvShowAllDefault;
+	m_SpecTeam = 0;
 	m_NinjaJetpack = false;
 
 	m_Paused = PAUSED_NONE;
@@ -90,12 +123,6 @@ CPlayer::CPlayer(CGameContext *pGameServer, int ClientID, int Team)
 #if defined(CONF_SQL)
 	m_LastSQLQuery = 0;
 #endif
-}
-
-CPlayer::~CPlayer()
-{
-	delete m_pCharacter;
-	m_pCharacter = 0;
 }
 
 void CPlayer::Tick()
@@ -133,6 +160,14 @@ void CPlayer::Tick()
 			m_Latency.m_AccumMin = 1000;
 			m_Latency.m_AccumMax = 0;
 		}
+	}
+
+	if(((CServer *)Server())->m_NetServer.ErrorString(m_ClientID)[0])
+	{
+		char aBuf[512];
+		str_format(aBuf, sizeof(aBuf), "'%s' would have timed out, but can use timeout protection now", Server()->ClientName(m_ClientID));
+		GameServer()->SendChat(-1, CGameContext::CHAT_ALL, aBuf);
+		((CServer *)(Server()))->m_NetServer.ResetErrorString(m_ClientID);
 	}
 
 	if(!GameServer()->m_World.m_Paused)
@@ -219,7 +254,7 @@ void CPlayer::Snap(int SnappingClient)
 		return;
 
 	int id = m_ClientID;
-	if (!Server()->Translate(id, SnappingClient)) return;
+	if (SnappingClient > -1 && !Server()->Translate(id, SnappingClient)) return;
 
 	CNetObj_ClientInfo *pClientInfo = static_cast<CNetObj_ClientInfo *>(Server()->SnapNewItem(NETOBJTYPE_CLIENTINFO, id, sizeof(CNetObj_ClientInfo)));
 
@@ -281,7 +316,7 @@ void CPlayer::FakeSnap(int SnappingClient)
 	IServer::CClientInfo info;
 	Server()->GetClientInfo(SnappingClient, &info);
 	CGameContext *GameContext = (CGameContext *) GameServer();
-	if (GameContext->m_apPlayers[SnappingClient] && GameContext->m_apPlayers[SnappingClient]->m_ClientVersion >= VERSION_DDNET_OLD)
+	if (SnappingClient > -1 && GameContext->m_apPlayers[SnappingClient] && GameContext->m_apPlayers[SnappingClient]->m_ClientVersion >= VERSION_DDNET_OLD)
 		return;
 
 	int id = VANILLA_MAX_CLIENTS - 1;
@@ -325,8 +360,20 @@ void CPlayer::OnPredictedInput(CNetObj_PlayerInput *NewInput)
 
 	AfkVoteTimer(NewInput);
 
+	m_NumInputs++;
+
 	if(m_pCharacter && !m_Paused)
 		m_pCharacter->OnPredictedInput(NewInput);
+
+	// Magic number when we can hope that client has successfully identified itself
+	if(m_NumInputs == 10)
+	{
+		if(g_Config.m_SvClientSuggestion[0] != '\0' && m_ClientVersion <= VERSION_DDNET_OLD)
+			GameServer()->SendBroadcast(g_Config.m_SvClientSuggestion, m_ClientID);
+
+		//if(g_Config.m_SvClientSuggestionOld[0] != '\0' && m_ClientVersion < CLIENT_VERSIONNR)
+		//	GameServer()->SendBroadcast(g_Config.m_SvClientSuggestionOld, m_ClientID);
+	}
 }
 
 void CPlayer::OnDirectInput(CNetObj_PlayerInput *NewInput)
@@ -345,8 +392,8 @@ void CPlayer::OnDirectInput(CNetObj_PlayerInput *NewInput)
 		if(m_pCharacter)
 			m_pCharacter->ResetInput();
 
-	m_PlayerFlags = NewInput->m_PlayerFlags;
- 		return;
+		m_PlayerFlags = NewInput->m_PlayerFlags;
+		return;
 	}
 
 	m_PlayerFlags = NewInput->m_PlayerFlags;
@@ -401,6 +448,15 @@ void CPlayer::Respawn()
 {
 	if(m_Team != TEAM_SPECTATORS)
 		m_Spawning = true;
+}
+
+CCharacter* CPlayer::ForceSpawn(vec2 Pos)
+{
+	m_Spawning = false;
+	m_pCharacter = new(m_ClientID) CCharacter(&GameServer()->m_World);
+	m_pCharacter->Spawn(this, Pos);
+	m_Team = 0;
+	return m_pCharacter;
 }
 
 void CPlayer::SetTeam(int Team, bool DoChatMsg)

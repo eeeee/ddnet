@@ -126,6 +126,12 @@ if family == "windows" then
 	table.insert(server_sql_depends, CopyToDirectory(".", "other\\mysql\\vc2005libs\\mysqlcppconn.dll"))
 	table.insert(server_sql_depends, CopyToDirectory(".", "other\\mysql\\vc2005libs\\libmysql.dll"))
 
+	--copy opus libs
+	table.insert(client_depends, CopyToDirectory(".", "other\\opus\\windows\\lib32\\libgcc_s_sjlj-1.dll"))
+	table.insert(client_depends, CopyToDirectory(".", "other\\opus\\windows\\lib32\\libogg-0.dll"))
+	table.insert(client_depends, CopyToDirectory(".", "other\\opus\\windows\\lib32\\libopus-0.dll"))
+	table.insert(client_depends, CopyToDirectory(".", "other\\opus\\windows\\lib32\\libopusfile-0.dll"))
+
 	if config.compiler.driver == "cl" then
 		client_link_other = {ResCompile("other/icons/teeworlds_cl.rc")}
 		server_link_other = {ResCompile("other/icons/teeworlds_srv_cl.rc")}
@@ -148,8 +154,6 @@ function build(settings)
 
 	--settings.cc.flags:Add("-m32")
 	--settings.link.flags:Add("-m32")
-	settings.link.flags:Add("-static-libgcc")
-	settings.link.flags:Add("-static-libstdc++")
 
 	cflags = os.getenv("CFLAGS")
 	if cflags then
@@ -162,7 +166,10 @@ function build(settings)
 
 	if config.compiler.driver == "cl" then
 		settings.cc.flags:Add("/wd4244")
+		settings.cc.flags:Add("/EHsc")
 	else
+		settings.link.flags:Add("-static-libgcc")
+		settings.link.flags:Add("-static-libstdc++")
 		settings.cc.flags:Add("-Wall")
 		if family == "windows" then
 			-- disable visibility attribute support for gcc on windows
@@ -180,10 +187,14 @@ function build(settings)
 		end
 	end
 
-	-- set some platform specific settings
 	settings.cc.includes:Add("src")
+	settings.cc.includes:Add("src/engine/external")
+	settings.cc.includes:Add("src/engine/external/ogg")
+	settings.cc.includes:Add("other/opus/include")
+	settings.cc.includes:Add("other/opus/include/opus")
 	settings.cc.includes:Add("other/mysql/include")
 
+	-- set some platform specific settings
 	if family == "unix" then
 		if platform == "macosx" then
 			settings.link.frameworks:Add("Carbon")
@@ -196,8 +207,8 @@ function build(settings)
 		end
 		
 		if platform == "solaris" then
-		    settings.link.flags:Add("-lsocket")
-		    settings.link.flags:Add("-lnsl")
+			settings.link.flags:Add("-lsocket")
+			settings.link.flags:Add("-lnsl")
 		end
 	elseif family == "windows" then
 		settings.link.libs:Add("gdi32")
@@ -222,6 +233,7 @@ function build(settings)
 	-- build the small libraries
 	wavpack = Compile(settings, Collect("src/engine/external/wavpack/*.c"))
 	pnglite = Compile(settings, Collect("src/engine/external/pnglite/*.c"))
+	jsonparser = Compile(settings, Collect("src/engine/external/json-parser/*.c"))
 
 	-- build game components
 	engine_settings = settings:Copy()
@@ -234,6 +246,7 @@ function build(settings)
 			server_settings.link.libs:Add("mysqlcppconn-static")
 			server_settings.link.libs:Add("mysqlclient")
 			server_settings.link.libs:Add("dl")
+			server_settings.link.libs:Add("rt")
 		end
 		
 		if platform == "macosx" then
@@ -242,6 +255,17 @@ function build(settings)
 			client_settings.link.frameworks:Add("Carbon")
 			client_settings.link.frameworks:Add("Cocoa")
 			launcher_settings.link.frameworks:Add("Cocoa")
+
+			client_settings.link.libs:Add("opusfile")
+			client_settings.link.libs:Add("opus")
+			client_settings.link.libs:Add("ogg")
+
+			if string.find(settings.config_name, "64") then
+				client_settings.link.libpath:Add("other/opus/mac/lib64")
+			else
+				client_settings.link.libpath:Add("other/opus/mac/lib32")
+			end
+
 			if string.find(settings.config_name, "sql") then
 				if arch == "amd64" then
 					server_settings.link.libpath:Add("other/mysql/mac/lib64")
@@ -253,6 +277,16 @@ function build(settings)
 			client_settings.link.libs:Add("X11")
 			client_settings.link.libs:Add("GL")
 			client_settings.link.libs:Add("GLU")
+			client_settings.link.libs:Add("opusfile")
+			client_settings.link.libs:Add("opus")
+			client_settings.link.libs:Add("ogg")
+
+			if arch == "amd64" then
+				client_settings.link.libpath:Add("other/opus/linux/lib64")
+			else
+				client_settings.link.libpath:Add("other/opus/linux/lib32")
+			end
+
 			if string.find(settings.config_name, "sql") then
 				if arch == "amd64" then
 					server_settings.link.libpath:Add("other/mysql/linux/lib64")
@@ -263,9 +297,11 @@ function build(settings)
 		end
 
 	elseif family == "windows" then
+		client_settings.link.libpath:Add("other/opus/windows/lib32")
 		client_settings.link.libs:Add("opengl32")
 		client_settings.link.libs:Add("glu32")
 		client_settings.link.libs:Add("winmm")
+		client_settings.link.libs:Add("libopusfile-0")
 		if string.find(settings.config_name, "sql") then
 			server_settings.link.libpath:Add("other/mysql/vc2005libs")
 			server_settings.link.libs:Add("mysqlcppconn")
@@ -283,6 +319,7 @@ function build(settings)
 
 	versionserver = Compile(settings, Collect("src/versionsrv/*.cpp"))
 	masterserver = Compile(settings, Collect("src/mastersrv/*.cpp"))
+	twping = Compile(settings, Collect("src/twping/*.cpp"))
 	game_shared = Compile(settings, Collect("src/game/*.cpp"), nethash, network_source)
 	game_client = Compile(client_settings, CollectRecursive("src/game/client/*.cpp"), client_content_source)
 	game_server = Compile(settings, CollectRecursive("src/game/server/*.cpp"), server_content_source)
@@ -307,7 +344,7 @@ function build(settings)
 	-- build client, server, version server and master server
 	client_exe = Link(client_settings, "DDNet", game_shared, game_client,
 		engine, client, game_editor, zlib, pnglite, wavpack,
-		client_link_other, client_osxlaunch)
+		client_link_other, client_osxlaunch, jsonparser)
 
 	server_exe = Link(server_settings, "DDNet-Server", engine, server,
 		game_shared, game_server, zlib, server_link_other)
@@ -323,6 +360,9 @@ function build(settings)
 	masterserver_exe = Link(server_settings, "mastersrv", masterserver,
 		engine, zlib)
 
+	twping_exe = Link(server_settings, "twping", twping,
+		engine, zlib)
+
 	-- make targets
 	c = PseudoTarget("client".."_"..settings.config_name, client_exe, client_depends)
 	if string.find(settings.config_name, "sql") then
@@ -335,8 +375,9 @@ function build(settings)
 	v = PseudoTarget("versionserver".."_"..settings.config_name, versionserver_exe)
 	m = PseudoTarget("masterserver".."_"..settings.config_name, masterserver_exe)
 	t = PseudoTarget("tools".."_"..settings.config_name, tools)
+	p = PseudoTarget("twping".."_"..settings.config_name, twping_exe)
 
-	all = PseudoTarget(settings.config_name, c, s, v, m, t)
+	all = PseudoTarget(settings.config_name, c, s, v, m, t, p)
 	return all
 end
 

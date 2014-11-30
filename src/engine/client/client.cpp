@@ -2,6 +2,7 @@
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include <new>
 
+#include <time.h>
 #include <stdlib.h> // qsort
 #include <stdarg.h>
 #include <string.h>
@@ -43,6 +44,7 @@
 #include <engine/shared/protocol.h>
 #include <engine/shared/ringbuffer.h>
 #include <engine/shared/snapshot.h>
+#include <engine/shared/fifoconsole.h>
 
 #include <game/version.h>
 
@@ -55,6 +57,8 @@
 #include "serverbrowser.h"
 #include "autoupdate.h"
 #include "client.h"
+
+#include <zlib.h>
 
 #if defined(CONF_FAMILY_WINDOWS)
 	#define _WIN32_WINNT 0x0501
@@ -253,8 +257,12 @@ void CSmoothTime::Update(CGraph *pGraph, int64 Target, int TimeLeft, int AdjustD
 }
 
 
-CClient::CClient() : m_DemoPlayer(&m_SnapshotDelta), m_DemoRecorder(&m_SnapshotDelta)
+CClient::CClient() : m_DemoPlayer(&m_SnapshotDelta)
 {
+	m_DemoRecorder[0] = CDemoRecorder(&m_SnapshotDelta);
+	m_DemoRecorder[1] = CDemoRecorder(&m_SnapshotDelta);
+	m_DemoRecorder[2] = CDemoRecorder(&m_SnapshotDelta);
+
 	m_pEditor = 0;
 	m_pInput = 0;
 	m_pGraphics = 0;
@@ -282,6 +290,7 @@ CClient::CClient() : m_DemoPlayer(&m_SnapshotDelta), m_DemoRecorder(&m_SnapshotD
 	m_CurrentRecvTick[1] = 0;
 	m_RconAuthed[0] = 0;
 	m_RconAuthed[1] = 0;
+	m_RconPassword[0] = '\0';
 
 	// version-checking
 	m_aVersionStr[0] = '0';
@@ -332,7 +341,10 @@ CClient::CClient() : m_DemoPlayer(&m_SnapshotDelta), m_DemoRecorder(&m_SnapshotD
 
 	m_VersionInfo.m_State = CVersionInfo::STATE_INIT;
 
-	m_LastDummyConnectTime = 0;
+	if (g_Config.m_ClDummy == 0)
+		m_LastDummyConnectTime = 0;
+
+	m_DDNetSrvListTokenSet = false;
 }
 
 // ----- send functions -----
@@ -369,8 +381,9 @@ int CClient::SendMsgEx(CMsgPacker *pMsg, int Flags, bool System)
 
 	if(Flags&MSGFLAG_RECORD)
 	{
-		if(m_DemoRecorder.IsRecording())
-			m_DemoRecorder.RecordMessage(Packet.m_pData, Packet.m_DataSize);
+		for(int i = 0; i < RECORDER_MAX; i++)
+			if(m_DemoRecorder[i].IsRecording())
+				m_DemoRecorder[i].RecordMessage(Packet.m_pData, Packet.m_DataSize);
 	}
 
 	if(!(Flags&MSGFLAG_NOSEND))
@@ -407,6 +420,8 @@ void CClient::RconAuth(const char *pName, const char *pPassword)
 	if(RconAuthed())
 		return;
 
+	str_copy(m_RconPassword, pPassword, sizeof(m_RconPassword));
+
 	CMsgPacker Msg(NETMSG_RCON_AUTH);
 	Msg.AddString(pName, 32);
 	Msg.AddString(pPassword, 32);
@@ -416,6 +431,17 @@ void CClient::RconAuth(const char *pName, const char *pPassword)
 
 void CClient::Rcon(const char *pCmd)
 {
+	CServerInfo Info;
+	GetServerInfo(&Info);
+	if(RconAuthed() && (str_find_nocase(Info.m_aGameType, "ddracenetw") || str_find_nocase(Info.m_aGameType, "ddnet")))
+	{ // Against IP spoofing on DDNet servers
+		CMsgPacker Msg(NETMSG_RCON_AUTH);
+		Msg.AddString("", 32);
+		Msg.AddString(m_RconPassword, 32);
+		Msg.AddInt(1);
+		SendMsgEx(&Msg, MSGFLAG_VITAL);
+	}
+
 	CMsgPacker Msg(NETMSG_RCON_CMD);
 	Msg.AddString(pCmd, 256);
 	SendMsgEx(&Msg, MSGFLAG_VITAL);
@@ -613,7 +639,10 @@ void CClient::OnEnterGame()
 	m_CurGameTick[g_Config.m_ClDummy] = 0;
 	m_PrevGameTick[g_Config.m_ClDummy] = 0;
 
-	m_LastDummyConnectTime = 0;
+	if (g_Config.m_ClDummy == 0)
+		m_LastDummyConnectTime = 0;
+
+	GameClient()->OnEnterGame();
 }
 
 void CClient::EnterGame()
@@ -625,6 +654,10 @@ void CClient::EnterGame()
 	// to finish the connection
 	SendEnterGame();
 	OnEnterGame();
+
+	ServerInfoRequest(); // fresh one for timeout protection
+	m_TimeoutCodeSent[0] = false;
+	m_TimeoutCodeSent[1] = false;
 }
 
 void CClient::Connect(const char *pAddress)
@@ -654,8 +687,9 @@ void CClient::Connect(const char *pAddress)
 	m_NetClient[0].Connect(&m_ServerAddress);
 	SetState(IClient::STATE_CONNECTING);
 
-	if(m_DemoRecorder.IsRecording())
-		DemoRecorder_Stop();
+	for(int i = 0; i < RECORDER_MAX; i++)
+		if(m_DemoRecorder[i].IsRecording())
+			DemoRecorder_Stop(i);
 
 	m_InputtimeMarginGraph.Init(-150.0f, 150.0f);
 	m_GametimeMarginGraph.Init(-150.0f, 150.0f);
@@ -669,7 +703,8 @@ void CClient::DisconnectWithReason(const char *pReason)
 
 	// stop demo playback and recorder
 	m_DemoPlayer.Stop();
-	DemoRecorder_Stop();
+	for(int i = 0; i < RECORDER_MAX; i++)
+		DemoRecorder_Stop(i);
 
 	//
 	m_RconAuthed[0] = 0;
@@ -712,7 +747,7 @@ bool CClient::DummyConnected()
 
 void CClient::DummyConnect()
 {
-	if(m_LastDummyConnectTime + GameTickSpeed() * 5 > GameTick())
+	if(m_LastDummyConnectTime > 0 && m_LastDummyConnectTime + GameTickSpeed() * 5 > GameTick())
 		return;
 
 	if(m_NetClient[0].State() != NET_CONNSTATE_ONLINE && m_NetClient[0].State() != NET_CONNSTATE_PENDING)
@@ -720,6 +755,8 @@ void CClient::DummyConnect()
 
 	if(m_DummyConnected)
 		return;
+
+	m_LastDummyConnectTime = GameTick();
 
 	m_RconAuthed[1] = 0;
 
@@ -804,6 +841,9 @@ void CClient::DummyInfo()
 void CClient::GetServerInfo(CServerInfo *pServerInfo)
 {
 	mem_copy(pServerInfo, &m_CurrentServerInfo, sizeof(m_CurrentServerInfo));
+
+	if(m_DemoPlayer.IsPlaying() && g_Config.m_ClDemoAssumeRace)
+		str_copy(pServerInfo->m_aGameType, "DDraceNetwork", 14);
 }
 
 void CClient::ServerInfoRequest()
@@ -1024,7 +1064,8 @@ const char *CClient::LoadMap(const char *pName, const char *pFilename, unsigned 
 	}
 
 	// stop demo recording if we loaded a new map
-	DemoRecorder_Stop();
+	for(int i = 0; i < RECORDER_MAX; i++)
+		DemoRecorder_Stop(i);
 
 	char aBuf[256];
 	str_format(aBuf, sizeof(aBuf), "loaded map '%s'", pFilename);
@@ -1129,6 +1170,8 @@ void CClient::ProcessConnlessPacket(CNetChunk *pPacket)
 			Packet.m_Flags = NETSENDFLAG_CONNLESS;
 			m_NetClient[g_Config.m_ClDummy].Send(&Packet);
 
+			RequestDDNetSrvList();
+
 			// request the map version list now
 			mem_zero(&Packet, sizeof(Packet));
 			Packet.m_ClientID = -1;
@@ -1153,6 +1196,54 @@ void CClient::ProcessConnlessPacket(CNetChunk *pPacket)
 			{
 				io_write(newsFile, m_aNews, sizeof(m_aNews));
 				io_close(newsFile);
+			}
+		}
+
+		// ddnet server list
+		// Packet: VERSIONSRV_DDNETLIST + char[4] Token + int16 comp_length + int16 plain_length + char[comp_length] 
+		if(pPacket->m_DataSize >= (int)(sizeof(VERSIONSRV_DDNETLIST) + 8) &&
+			mem_comp(pPacket->m_pData, VERSIONSRV_DDNETLIST, sizeof(VERSIONSRV_DDNETLIST)) == 0 &&
+			mem_comp((char*)pPacket->m_pData+sizeof(VERSIONSRV_DDNETLIST), m_aDDNetSrvListToken, 4) == 0)
+		{
+			// reset random token
+			m_DDNetSrvListTokenSet = false;
+			int CompLength = *(short*)((char*)pPacket->m_pData+(sizeof(VERSIONSRV_DDNETLIST)+4));
+			int PlainLength = *(short*)((char*)pPacket->m_pData+(sizeof(VERSIONSRV_DDNETLIST)+6));
+
+			if (pPacket->m_DataSize == (int)(sizeof(VERSIONSRV_DDNETLIST) + 8 + CompLength))
+			{
+				char aBuf[16384];
+				uLongf DstLen = sizeof(aBuf);
+				const char *pComp = (char*)pPacket->m_pData+sizeof(VERSIONSRV_DDNETLIST)+8;
+
+				// do decompression of serverlist
+				if (uncompress((Bytef*)aBuf, &DstLen, (Bytef*)pComp, CompLength) == Z_OK && (int)DstLen == PlainLength)
+				{
+					bool ListChanged = true;
+
+					IOHANDLE File = m_pStorage->OpenFile("ddnet-servers.json", IOFLAG_READ, IStorage::TYPE_SAVE);
+					if (File)
+					{
+						char aBuf2[16384];
+						io_read(File, aBuf2, sizeof(aBuf2));
+						io_close(File);
+						if (str_comp(aBuf, aBuf2) == 0)
+							ListChanged = false;
+					}
+
+					// decompression successful, write plain file
+					if (ListChanged)
+					{
+						IOHANDLE File = m_pStorage->OpenFile("ddnet-servers.json", IOFLAG_WRITE, IStorage::TYPE_SAVE);
+						if (File)
+						{
+							io_write(File, aBuf, PlainLength);
+							io_close(File);
+						}
+						if(g_Config.m_UiPage == CMenus::PAGE_DDNET)
+							m_ServerBrowser.Refresh(IServerBrowser::TYPE_DDNET);
+					}
+				}
 			}
 		}
 
@@ -1287,7 +1378,9 @@ void CClient::ProcessConnlessPacket(CNetChunk *pPacket)
 			// sort players
 			qsort(Info.m_aClients, Info.m_NumClients, sizeof(*Info.m_aClients), PlayerScoreComp);
 
-			m_ServerBrowser.Set(pPacket->m_Address, IServerBrowser::SET_TOKEN, Token, &Info);
+			pEntry = m_ServerBrowser.Find(pPacket->m_Address);
+			if (!pEntry || !pEntry->m_GotInfo)
+				m_ServerBrowser.Set(pPacket->m_Address, IServerBrowser::SET_TOKEN, Token, &Info);
 
 			if(net_addr_comp(&m_ServerAddress, &pPacket->m_Address) == 0)
 			{
@@ -1299,10 +1392,10 @@ void CClient::ProcessConnlessPacket(CNetChunk *pPacket)
 				}
 			}
 
-			if (strstr(Info.m_aGameType, "64") || strstr(Info.m_aName, "64"))
+			if (strstr(Info.m_aGameType, "64") || strstr(Info.m_aName, "64") || strstr(Info.m_aGameType, "DDraceNet") || strstr(Info.m_aGameType, "DDNet"))
 			{
 				pEntry = m_ServerBrowser.Find(pPacket->m_Address);
-				if (pEntry && m_ServerBrowser.IsRefreshing())
+				if (pEntry)
 				{
 					pEntry->m_Is64 = true;
 					m_ServerBrowser.RequestImpl64(pEntry->m_Addr, pEntry); // Force a quick update
@@ -1398,8 +1491,8 @@ void CClient::ProcessServerPacket(CNetChunk *pPacket)
 			if(Unpacker.Error())
 				return;
 
-			g_Config.m_ClDummy = 0;
-			m_DummyConnected = false;
+			if(m_DummyConnected)
+				DummyDisconnect(0);
 
 			// check for valid standard map
 			if(!m_MapChecker.IsMapValid(pMap, MapCrc, MapSize))
@@ -1728,10 +1821,13 @@ void CClient::ProcessServerPacket(CNetChunk *pPacket)
 					m_SnapshotStorage[g_Config.m_ClDummy].Add(GameTick, time_get(), SnapSize, pTmpBuffer3, 1);
 
 					// add snapshot to demo
-					if(m_DemoRecorder.IsRecording())
+					for(int i = 0; i < RECORDER_MAX; i++)
 					{
-						// write snapshot
-						m_DemoRecorder.RecordSnapshot(GameTick, pTmpBuffer3, SnapSize);
+						if(m_DemoRecorder[i].IsRecording())
+						{
+							// write snapshot
+							m_DemoRecorder[i].RecordSnapshot(GameTick, pTmpBuffer3, SnapSize);
+						}
 					}
 
 					// apply snapshot, cycle pointers
@@ -1762,6 +1858,23 @@ void CClient::ProcessServerPacket(CNetChunk *pPacket)
 						m_GameTime[g_Config.m_ClDummy].Update(&m_GametimeMarginGraph, (GameTick-1)*time_freq()/50, TimeLeft, 0);
 					}
 
+					if(m_RecivedSnapshots[g_Config.m_ClDummy] > 50 && !m_TimeoutCodeSent[g_Config.m_ClDummy])
+					{
+						if(str_find_nocase(m_CurrentServerInfo.m_aGameType, "ddracenetw")
+							|| str_find_nocase(m_CurrentServerInfo.m_aGameType, "ddnet"))
+						{
+							m_TimeoutCodeSent[g_Config.m_ClDummy] = true;
+							CNetMsg_Cl_Say Msg;
+							Msg.m_Team = 0;
+							char aBuf[256];
+							str_format(aBuf, sizeof(aBuf), "/timeout %s", g_Config.m_ClDummy ? g_Config.m_ClDummyTimeoutCode : g_Config.m_ClTimeoutCode);
+							Msg.m_pMessage = aBuf;
+							CMsgPacker Packer(Msg.MsgID());
+							Msg.Pack(&Packer);
+							SendMsgExY(&Packer, MSGFLAG_VITAL, false, g_Config.m_ClDummy);
+						}
+					}
+
 					// ack snapshot
 					m_AckGameTick[g_Config.m_ClDummy] = GameTick;
 				}
@@ -1771,8 +1884,9 @@ void CClient::ProcessServerPacket(CNetChunk *pPacket)
 	else
 	{
 		// game message
-		if(m_DemoRecorder.IsRecording())
-			m_DemoRecorder.RecordMessage(pPacket->m_pData, pPacket->m_DataSize);
+		for(int i = 0; i < RECORDER_MAX; i++)
+			if(m_DemoRecorder[i].IsRecording())
+				m_DemoRecorder[i].RecordMessage(pPacket->m_pData, pPacket->m_DataSize);
 
 		GameClient()->OnMessage(Msg, &Unpacker);
 	}
@@ -1796,9 +1910,10 @@ void CClient::ProcessServerPacketDummy(CNetChunk *pPacket)
 		if(Msg == NETMSG_CON_READY)
 		{
 			m_DummyConnected = true;
-			m_LastDummyConnectTime = GameTick();
 			g_Config.m_ClDummy = 1;
 			Rcon("crashmeplx");
+			if(m_RconAuthed[0])
+				RconAuth("", m_RconPassword);
 		}
 		else if(Msg == NETMSG_SNAP || Msg == NETMSG_SNAPSINGLE || Msg == NETMSG_SNAPEMPTY)
 		{
@@ -1951,13 +2066,6 @@ void CClient::ProcessServerPacketDummy(CNetChunk *pPacket)
 					// add new
 					m_SnapshotStorage[!g_Config.m_ClDummy].Add(GameTick, time_get(), SnapSize, pTmpBuffer3, 1);
 
-					// add snapshot to demo
-					//if(m_DemoRecorder.IsRecording())
-					//{
-					//	// write snapshot
-					//	m_DemoRecorder.RecordSnapshot(GameTick, pTmpBuffer3, SnapSize);
-					//}
-
 					// apply snapshot, cycle pointers
 					m_RecivedSnapshots[!g_Config.m_ClDummy]++;
 
@@ -2001,7 +2109,7 @@ void CClient::ProcessServerPacketDummy(CNetChunk *pPacket)
 
 void CClient::PumpNetwork()
 {
-	for(int i=0; i<2; i++)
+	for(int i=0; i<3; i++)
 	{
 		m_NetClient[i].Update();
 	}
@@ -2030,7 +2138,7 @@ void CClient::PumpNetwork()
 
 	// process packets
 	CNetChunk Packet;
-	for(int i=0; i < 2; i++)
+	for(int i=0; i < 3; i++)
 	{
 		while(m_NetClient[i].Recv(&Packet))
 		{
@@ -2300,7 +2408,7 @@ void CClient::VersionUpdate()
 
 void CClient::RegisterInterfaces()
 {
-	Kernel()->RegisterInterface(static_cast<IDemoRecorder*>(&m_DemoRecorder));
+	Kernel()->RegisterInterface(static_cast<IDemoRecorder*>(&m_DemoRecorder[RECORDER_MANUAL]));
 	Kernel()->RegisterInterface(static_cast<IDemoPlayer*>(&m_DemoPlayer));
 	Kernel()->RegisterInterface(static_cast<IServerBrowser*>(&m_ServerBrowser));
 #if !defined(CONF_PLATFORM_MACOSX) && !defined(__ANDROID__)
@@ -2325,10 +2433,11 @@ void CClient::InitInterfaces()
 #endif
 	m_pStorage = Kernel()->RequestInterface<IStorage>();
 
-	for(int i=0;i<2;i++)
-	{
-		m_ServerBrowser.SetBaseInfo(&m_NetClient[i], m_pGameClient->NetVersion());
-	}
+
+	m_DemoEditor.Init(m_pGameClient->NetVersion(), &m_SnapshotDelta, m_pConsole, m_pStorage);
+	
+	m_ServerBrowser.SetBaseInfo(&m_NetClient[2], m_pGameClient->NetVersion());
+
 	m_Friends.Init();
 
 	IOHANDLE newsFile = m_pStorage->OpenFile("ddnet-news.txt", IOFLAG_READ, IStorage::TYPE_SAVE);
@@ -2347,6 +2456,8 @@ void CClient::Run()
 {
 	m_LocalStartTime = time_get();
 	m_SnapshotParts = 0;
+
+	srand(time(NULL));
 
 	// init SDL
 	{
@@ -2394,13 +2505,13 @@ void CClient::Run()
 			mem_zero(&BindAddr, sizeof(BindAddr));
 			BindAddr.type = NETTYPE_ALL;
 		}
-		for(int i = 0; i < 2; i++)
+		for(int i = 0; i < 3; i++)
 		{
 			continue;
-			if(!m_NetClient[i].Open(BindAddr, 0))
+			BindAddr.port = (rand() % 64511) + 1024;
+			while(!m_NetClient[i].Open(BindAddr, 0))
 			{
-				dbg_msg("client", "couldn't open socket");
-				return;
+				BindAddr.port = (rand() % 64511) + 1024;
 			}
 		}
 	}
@@ -2600,9 +2711,9 @@ void CClient::MainLoop() {
 
 		// beNice
 		if(g_Config.m_ClCpuThrottle)
-			net_socket_read_wait(m_NetClient[0].m_Socket, g_Config.m_ClCpuThrottle);
+			net_socket_read_wait(m_NetClient[0].m_Socket, g_Config.m_ClCpuThrottle * 1000);
 			//thread_sleep(g_Config.m_ClCpuThrottle);
-		else if(g_Config.m_DbgStress || !m_pGraphics->WindowActive())
+		else if(g_Config.m_DbgStress || (g_Config.m_ClCpuThrottleInactive && !m_pGraphics->WindowActive()))
 			thread_sleep(5);
 
 		if(g_Config.m_DbgHitch)
@@ -2610,23 +2721,6 @@ void CClient::MainLoop() {
 			thread_sleep(g_Config.m_DbgHitch);
 			g_Config.m_DbgHitch = 0;
 		}
-
-		/*
-		if(ReportTime < time_get())
-		{
-			if(0 && g_Config.m_Debug)
-			{
-				dbg_msg("client/report", "fps=%.02f (%.02f %.02f) netstate=%d",
-					m_Frames/(float)(ReportInterval/time_freq()),
-					1.0f/m_RenderFrameTimeHigh,
-					1.0f/m_RenderFrameTimeLow,
-					m_NetClient.State());
-			}
-			m_RenderFrameTimeLow = 1;
-			m_RenderFrameTimeHigh = 0;
-			m_RenderFrames = 0;
-			ReportTime += ReportInterval;
-		}*/
 
 		// update local time
 		m_LocalTime = (time_get()-m_LocalStartTime)/(float)time_freq();
@@ -2764,6 +2858,39 @@ void CClient::Con_RemoveFavorite(IConsole::IResult *pResult, void *pUserData)
 		pSelf->m_ServerBrowser.RemoveFavorite(Addr);
 }
 
+void CClient::DemoSliceBegin()
+{
+	const CDemoPlayer::CPlaybackInfo *pInfo = m_DemoPlayer.Info();
+	g_Config.m_ClDemoSliceBegin = pInfo->m_Info.m_CurrentTick;
+}
+
+void CClient::DemoSliceEnd()
+{
+	const CDemoPlayer::CPlaybackInfo *pInfo = m_DemoPlayer.Info();
+	g_Config.m_ClDemoSliceEnd = pInfo->m_Info.m_CurrentTick;
+}
+
+void CClient::Con_DemoSliceBegin(IConsole::IResult *pResult, void *pUserData)
+{
+	CClient *pSelf = (CClient *)pUserData;
+	pSelf->DemoSliceBegin();	
+}
+
+void CClient::Con_DemoSliceEnd(IConsole::IResult *pResult, void *pUserData)
+{
+	CClient *pSelf = (CClient *)pUserData;
+	pSelf->DemoSliceEnd();
+}
+
+void CClient::DemoSlice(const char *pDstPath)
+{
+	if (m_DemoPlayer.IsPlaying())
+	{
+		const char *pDemoFileName = m_DemoPlayer.GetDemoFileName();
+		m_DemoEditor.Slice(pDemoFileName, pDstPath, g_Config.m_ClDemoSliceBegin, g_Config.m_ClDemoSliceEnd);
+	}
+}
+
 const char *CClient::DemoPlayer_Play(const char *pFilename, int StorageType)
 {
 	int Crc;
@@ -2822,7 +2949,7 @@ void CClient::Con_Play(IConsole::IResult *pResult, void *pUserData)
 	pSelf->DemoPlayer_Play(pResult->GetString(0), IStorage::TYPE_ALL);
 }
 
-void CClient::DemoRecorder_Start(const char *pFilename, bool WithTimestamp)
+void CClient::DemoRecorder_Start(const char *pFilename, bool WithTimestamp, int Recorder)
 {
 	if(State() != IClient::STATE_ONLINE)
 		m_pConsole->Print(IConsole::OUTPUT_LEVEL_STANDARD, "demorec/record", "client is not online");
@@ -2837,7 +2964,7 @@ void CClient::DemoRecorder_Start(const char *pFilename, bool WithTimestamp)
 		}
 		else
 			str_format(aFilename, sizeof(aFilename), "demos/%s.demo", pFilename);
-		m_DemoRecorder.Start(Storage(), m_pConsole, aFilename, GameClient()->NetVersion(), m_aCurrentMap, m_CurrentMapCrc, "client");
+		m_DemoRecorder[Recorder].Start(Storage(), m_pConsole, aFilename, GameClient()->NetVersion(), m_aCurrentMap, m_CurrentMapCrc, "client");
 	}
 }
 
@@ -2845,8 +2972,8 @@ void CClient::DemoRecorder_HandleAutoStart()
 {
 	if(g_Config.m_ClAutoDemoRecord)
 	{
-		DemoRecorder_Stop();
-		DemoRecorder_Start("auto/autorecord", true);
+		DemoRecorder_Stop(RECORDER_AUTO);
+		DemoRecorder_Start("auto/autorecord", true, RECORDER_AUTO);
 		if(g_Config.m_ClAutoDemoMax)
 		{
 			// clean up auto recorded demos
@@ -2856,35 +2983,40 @@ void CClient::DemoRecorder_HandleAutoStart()
 	}
 }
 
-void CClient::DemoRecorder_Stop()
+void CClient::DemoRecorder_Stop(int Recorder)
 {
-	m_DemoRecorder.Stop();
+	m_DemoRecorder[Recorder].Stop();
 }
 
-void CClient::DemoRecorder_AddDemoMarker()
+void CClient::DemoRecorder_AddDemoMarker(int Recorder)
 {
-	m_DemoRecorder.AddDemoMarker();
+	m_DemoRecorder[Recorder].AddDemoMarker();
+}
+
+class IDemoRecorder *CClient::DemoRecorder(int Recorder)
+{
+	return &m_DemoRecorder[Recorder];
 }
 
 void CClient::Con_Record(IConsole::IResult *pResult, void *pUserData)
 {
 	CClient *pSelf = (CClient *)pUserData;
 	if(pResult->NumArguments())
-		pSelf->DemoRecorder_Start(pResult->GetString(0), false);
+		pSelf->DemoRecorder_Start(pResult->GetString(0), false, RECORDER_MANUAL);
 	else
-		pSelf->DemoRecorder_Start("demo", true);
+		pSelf->DemoRecorder_Start("demo", true, RECORDER_MANUAL);
 }
 
 void CClient::Con_StopRecord(IConsole::IResult *pResult, void *pUserData)
 {
 	CClient *pSelf = (CClient *)pUserData;
-	pSelf->DemoRecorder_Stop();
+	pSelf->DemoRecorder_Stop(RECORDER_MANUAL);
 }
 
 void CClient::Con_AddDemoMarker(IConsole::IResult *pResult, void *pUserData)
 {
 	CClient *pSelf = (CClient *)pUserData;
-	pSelf->DemoRecorder_AddDemoMarker();
+	pSelf->DemoRecorder_AddDemoMarker(RECORDER_MANUAL);
 }
 
 void CClient::ServerBrowserUpdate()
@@ -2931,6 +3063,8 @@ void CClient::RegisterCommands()
 	m_pConsole->Register("add_demomarker", "", CFGFLAG_CLIENT, Con_AddDemoMarker, this, "Add demo timeline marker");
 	m_pConsole->Register("add_favorite", "s", CFGFLAG_CLIENT, Con_AddFavorite, this, "Add a server as a favorite");
 	m_pConsole->Register("remove_favorite", "s", CFGFLAG_CLIENT, Con_RemoveFavorite, this, "Remove a server from favorites");
+	m_pConsole->Register("demo_slice_start", "", CFGFLAG_CLIENT, Con_DemoSliceBegin, this, "");
+	m_pConsole->Register("demo_slice_end", "", CFGFLAG_CLIENT, Con_DemoSliceEnd, this, "");
 
 	// used for server browser update
 	m_pConsole->Chain("br_filter_string", ConchainServerBrowserUpdate, this);
@@ -2980,6 +3114,10 @@ int main(int argc, const char **argv) // ignore_convention
 			break;
 		}
 	}
+#endif
+
+#if !defined(CONF_PLATFORM_MACOSX)
+	dbg_enable_threaded();
 #endif
 
 	CClient *pClient = CreateClient();
@@ -3042,7 +3180,16 @@ int main(int argc, const char **argv) // ignore_convention
 	pClient->InitInterfaces();
 
 	// execute config file
-	pConsole->ExecuteFile("settings.cfg");
+	IOHANDLE file = pStorage->OpenFile("settings_ddnet.cfg", IOFLAG_READ, IStorage::TYPE_ALL);
+	if(file)
+	{
+		io_close(file);
+		pConsole->ExecuteFile("settings_ddnet.cfg");
+	}
+	else // fallback
+	{
+		pConsole->ExecuteFile("settings.cfg");
+	}
 
 	// execute autoexec file
 	pConsole->ExecuteFile("autoexec.cfg");
@@ -3056,9 +3203,17 @@ int main(int argc, const char **argv) // ignore_convention
 
 	pClient->Engine()->InitLogfile();
 
+#if defined(CONF_FAMILY_UNIX)
+	FifoConsole *fifoConsole = new FifoConsole(pConsole, g_Config.m_ClInputFifo, CFGFLAG_CLIENT);
+#endif
+
 	// run the client
 	dbg_msg("client", "starting...");
 	pClient->Run();
+
+#if defined(CONF_FAMILY_UNIX)
+	delete fifoConsole;
+#endif
 
 	// write down the config and quit
 	pConfig->Save();
@@ -3090,18 +3245,40 @@ const char* CClient::RaceRecordStart(const char *pFilename)
 	if(State() != STATE_ONLINE)
 		dbg_msg("demorec/record", "client is not online");
 	else
-		m_DemoRecorder.Start(Storage(),  m_pConsole, aFilename, GameClient()->NetVersion(), m_aCurrentMap, m_CurrentMapCrc, "client");
+		m_DemoRecorder[RECORDER_RACE].Start(Storage(),  m_pConsole, aFilename, GameClient()->NetVersion(), m_aCurrentMap, m_CurrentMapCrc, "client");
 
 	return m_aCurrentMap;
 }
 
 void CClient::RaceRecordStop()
 {
-	if(m_DemoRecorder.IsRecording())
-		m_DemoRecorder.Stop();
+	if(m_DemoRecorder[RECORDER_RACE].IsRecording())
+		m_DemoRecorder[RECORDER_RACE].Stop();
 }
 
-bool CClient::DemoIsRecording()
+bool CClient::RaceRecordIsRecording()
 {
-	return m_DemoRecorder.IsRecording();
+	return m_DemoRecorder[RECORDER_RACE].IsRecording();
+}
+
+void CClient::RequestDDNetSrvList()
+{
+	// request ddnet server list
+	// generate new token
+	for (int i = 0; i < 4; i++)
+		m_aDDNetSrvListToken[i] = rand()&0xff;
+	m_DDNetSrvListTokenSet = true;
+
+	char aData[sizeof(VERSIONSRV_GETDDNETLIST)+4];
+	mem_copy(aData, VERSIONSRV_GETDDNETLIST, sizeof(VERSIONSRV_GETDDNETLIST));
+	mem_copy(aData+sizeof(VERSIONSRV_GETDDNETLIST), m_aDDNetSrvListToken, 4); // add token
+
+	CNetChunk Packet;
+	mem_zero(&Packet, sizeof(Packet));
+	Packet.m_ClientID = -1;
+	Packet.m_Address = m_VersionInfo.m_VersionServeraddr.m_Addr;
+	Packet.m_pData = aData;
+	Packet.m_DataSize = sizeof(VERSIONSRV_GETDDNETLIST)+4;
+	Packet.m_Flags = NETSENDFLAG_CONNLESS;
+	m_NetClient[g_Config.m_ClDummy].Send(&Packet);
 }

@@ -69,15 +69,13 @@ int CNetServer::Drop(int ClientID, const char *pReason)
 
 int CNetServer::Update()
 {
-	int64 Now = time_get();
 	for(int i = 0; i < MaxClients(); i++)
 	{
 		m_aSlots[i].m_Connection.Update();
-		if(m_aSlots[i].m_Connection.State() == NET_CONNSTATE_ERROR)
+		if(m_aSlots[i].m_Connection.State() == NET_CONNSTATE_ERROR &&
+			(!m_aSlots[i].m_Connection.m_TimeoutProtected ||
+			 !m_aSlots[i].m_Connection.m_TimeoutSituation))
 		{
-			if (Now - m_aSlots[i].m_Connection.ConnectTime() < time_freq() / 5 && NetBan())
-				NetBan()->BanAddr(ClientAddr(i), 60, "Too many connections");
-			else
 			Drop(i, m_aSlots[i].m_Connection.ErrorString());
 		}
 	}
@@ -138,9 +136,16 @@ int CNetServer::Recv(CNetChunk *pChunk)
 					for(int i = 0; i < MaxClients(); i++)
 					{
 						if(m_aSlots[i].m_Connection.State() != NET_CONNSTATE_OFFLINE &&
+							m_aSlots[i].m_Connection.State() != NET_CONNSTATE_ERROR &&
 							net_addr_comp(m_aSlots[i].m_Connection.PeerAddress(), &Addr) == 0)
 						{
 							Found = true; // silent ignore.. we got this client already
+							//if(m_aSlots[i].m_Connection.State() == NET_CONNSTATE_ERROR)
+							//{
+							//	m_aSlots[i].m_Connection.Feed(&m_RecvUnpacker.m_Data, &Addr);
+							//	if(m_pfnNewClient)
+							//		m_pfnNewClient(i, m_UserPtr);
+							//}
 							break;
 						}
 					}
@@ -197,6 +202,9 @@ int CNetServer::Recv(CNetChunk *pChunk)
 					{
 						if(net_addr_comp(m_aSlots[i].m_Connection.PeerAddress(), &Addr) == 0)
 						{
+							if(m_aSlots[i].m_Connection.State() == NET_CONNSTATE_OFFLINE ||
+								m_aSlots[i].m_Connection.State() == NET_CONNSTATE_ERROR)
+								continue;
 							if(m_aSlots[i].m_Connection.Feed(&m_RecvUnpacker.m_Data, &Addr))
 							{
 								if(m_RecvUnpacker.m_Data.m_DataSize)
@@ -255,4 +263,30 @@ void CNetServer::SetMaxClientsPerIP(int Max)
 		Max = NET_MAX_CLIENTS;
 
 	m_MaxClientsPerIP = Max;
+}
+
+bool CNetServer::SetTimedOut(int ClientID, int OrigID)
+{
+	if (m_aSlots[ClientID].m_Connection.State() != NET_CONNSTATE_ERROR)
+		return false;
+
+	m_aSlots[ClientID].m_Connection.SetTimedOut(ClientAddr(OrigID), m_aSlots[OrigID].m_Connection.SeqSequence(), m_aSlots[OrigID].m_Connection.AckSequence());
+	m_aSlots[OrigID].m_Connection.Reset();
+	return true;
+}
+
+void CNetServer::SetTimeoutProtected(int ClientID)
+{
+	m_aSlots[ClientID].m_Connection.m_TimeoutProtected = true;
+}
+
+int CNetServer::ResetErrorString(int ClientID)
+{
+	m_aSlots[ClientID].m_Connection.ResetErrorString();
+	return 0;
+}
+
+const char *CNetServer::ErrorString(int ClientID)
+{
+	return m_aSlots[ClientID].m_Connection.ErrorString();
 }

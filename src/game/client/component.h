@@ -17,7 +17,6 @@ protected:
 	class IKernel *Kernel() const { return m_pClient->Kernel(); }
 	class IGraphics *Graphics() const { return m_pClient->Graphics(); }
 	class ITextRender *TextRender() const { return m_pClient->TextRender(); }
-	class IClient *Client() const { return m_pClient->Client(); }
 	class IInput *Input() const { return m_pClient->Input(); }
 	class IStorage *Storage() const { return m_pClient->Storage(); }
 	class CUI *UI() const { return m_pClient->UI(); }
@@ -25,7 +24,7 @@ protected:
 	class CRenderTools *RenderTools() const { return m_pClient->RenderTools(); }
 	class IConsole *Console() const { return m_pClient->Console(); }
 	class IDemoPlayer *DemoPlayer() const { return m_pClient->DemoPlayer(); }
-	class IDemoRecorder *DemoRecorder() const { return m_pClient->DemoRecorder(); }
+	class IDemoRecorder *DemoRecorder(int Recorder) const { return m_pClient->DemoRecorder(Recorder); }
 	class IServerBrowser *ServerBrowser() const { return m_pClient->ServerBrowser(); }
 #if !defined(CONF_PLATFORM_MACOSX) && !defined(__ANDROID__)
 	class IAutoUpdate *AutoUpdate() const { return m_pClient->AutoUpdate(); }
@@ -34,6 +33,8 @@ protected:
 	class CCollision *Collision() const { return m_pClient->Collision(); }
 public:
 	virtual ~CComponent() {}
+	class CGameClient *GameClient() const { return m_pClient; }
+	class IClient *Client() const { return m_pClient->Client(); }
 
 	virtual void OnStateChange(int NewState, int OldState) {};
 	virtual void OnConsoleInit() {};

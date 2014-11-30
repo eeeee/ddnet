@@ -98,6 +98,8 @@ public:
 			STATE_EMPTY = 0,
 			STATE_AUTH,
 			STATE_CONNECTING,
+			STATE_SPOOFCHECK,
+			STATE_POSTSPOOFCHECK,
 			STATE_READY,
 			STATE_INGAME,
 
@@ -134,7 +136,12 @@ public:
 		int m_Country;
 		int m_Score;
 		int m_Authed;
+		int m_LastAuthed;
 		int m_AuthTries;
+
+		int m_Nonce; // number to reach
+		int m_NonceCount; // current num
+		int64 m_LastNonceCount;
 
 		const IConsole::CCommandInfo *m_pRconCmdToSend;
 
@@ -171,9 +178,9 @@ public:
 	char m_aCurrentMap[64];
 	unsigned m_CurrentMapCrc;
 	unsigned char *m_pCurrentMapData;
-	int m_CurrentMapSize;
+	unsigned int m_CurrentMapSize;
 
-	CDemoRecorder m_DemoRecorder;
+	CDemoRecorder m_aDemoRecorder[MAX_CLIENTS+1];
 	CRegister m_Register;
 	CMapChecker m_MapChecker;
 
@@ -236,6 +243,11 @@ public:
 	char *GetMapName();
 	int LoadMap(const char *pMapName);
 
+	void SaveDemo(int ClientID, float Time);
+	void StartRecord(int ClientID);
+	void StopRecord(int ClientID);
+	bool IsRecording(int ClientID);
+
 	void InitRegister(CNetServer *pNetServer, IEngineMasterServer *pMasterServer, IConsole *pConsole);
 	int Run();
 
@@ -251,6 +263,8 @@ public:
 	static void ConchainMaxclientsperipUpdate(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData);
 	static void ConchainModCommandUpdate(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData);
 	static void ConchainConsoleOutputLevelUpdate(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData);
+	static void ConchainRconPasswordChange(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData);
+	static void ConchainRconModPasswordChange(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData);
 
 	void RegisterCommands();
 

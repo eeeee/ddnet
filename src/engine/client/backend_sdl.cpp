@@ -1,5 +1,14 @@
 /*
+#include <base/detect.h>
+
+#if defined(CONF_FAMILY_WINDOWS)
+	// For FlashWindowEx, FLASHWINFO, FLASHW_TRAY
+	#define _WIN32_WINNT 0x0501
+	#define WINVER 0x0501
+#endif
+
 #include "SDL.h"
+#include "SDL_syswm.h"
 #if defined(__ANDROID__)
 	#define GL_GLEXT_PROTOTYPES
 	#include <GLES/gl.h>
@@ -11,6 +20,12 @@
 	#include "SDL_opengl.h"
 #endif
 
+#if defined(SDL_VIDEO_DRIVER_X11)
+	#include <X11/Xutil.h>
+	#include <X11/Xlib.h>
+#endif
+
+#include <engine/shared/config.h>
 #include <base/tl/threading.h>
 
 #include "graphics_threaded.h"
@@ -322,11 +337,18 @@ void CCommandProcessorFragment_OpenGL::Cmd_Render(const CCommandBuffer::SCommand
 	switch(pCommand->m_PrimType)
 	{
 	case CCommandBuffer::PRIMTYPE_QUADS:
-#if defined(__ANDROID__)
-		for( unsigned i = 0, j = pCommand->m_PrimCount; i < j; i++ )
-			glDrawArrays(GL_TRIANGLE_FAN, i*4, 4);
-#else
-		glDrawArrays(GL_QUADS, 0, pCommand->m_PrimCount*4);
+#if !defined(__ANDROID__)
+		if(g_Config.m_GfxQuadsAsTriangles)
+#endif
+		{
+			for( unsigned i = 0, j = pCommand->m_PrimCount; i < j; i++ )
+				glDrawArrays(GL_TRIANGLE_FAN, i*4, 4);
+		}
+#if !defined(__ANDROID__)
+		else
+		{
+			glDrawArrays(GL_QUADS, 0, pCommand->m_PrimCount*4);
+		}
 #endif
 		break;
 	case CCommandBuffer::PRIMTYPE_LINES:
@@ -651,7 +673,49 @@ int CGraphicsBackend_SDL_OpenGL::WindowActive()
 int CGraphicsBackend_SDL_OpenGL::WindowOpen()
 {
 	return SDL_GetAppState()&SDL_APPACTIVE;
+}
 
+void CGraphicsBackend_SDL_OpenGL::NotifyWindow()
+{
+	// get window handle
+	SDL_SysWMinfo info;
+	SDL_VERSION(&info.version);
+	if(!SDL_GetWMInfo(&info))
+	{
+		dbg_msg("gfx", "unable to obtain window handle");
+		return;
+	}
+
+	#if defined(CONF_FAMILY_WINDOWS)
+		FLASHWINFO desc;
+		desc.cbSize = sizeof(desc);
+		desc.hwnd = info.window;
+		desc.dwFlags = FLASHW_TRAY;
+		desc.uCount = 3; // flash 3 times
+		desc.dwTimeout = 0;
+
+		FlashWindowEx(&desc);
+	#elif defined(SDL_VIDEO_DRIVER_X11) && !defined(CONF_PLATFORM_MACOSX)
+		Display *dpy = info.info.x11.display;
+		Window win;
+		if(m_pScreenSurface->flags & SDL_FULLSCREEN)
+			win = info.info.x11.fswindow;
+		else
+			win = info.info.x11.wmwindow;
+
+		// Old hints
+		XWMHints *wmhints;
+		wmhints = XAllocWMHints();
+		wmhints->flags = XUrgencyHint;
+		XSetWMHints(dpy, win, wmhints);
+		XFree(wmhints);
+
+		// More modern way of notifying
+		static Atom demandsAttention = XInternAtom(dpy, "_NET_WM_STATE_DEMANDS_ATTENTION", true);
+		static Atom wmState = XInternAtom(dpy, "_NET_WM_STATE", true);
+		XChangeProperty(dpy, win, wmState, XA_ATOM, 32, PropModeReplace,
+			(unsigned char *) &demandsAttention, 1);
+	#endif
 }
 
 

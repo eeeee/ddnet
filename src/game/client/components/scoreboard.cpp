@@ -128,13 +128,12 @@ void CScoreboard::RenderSpectators(float x, float y, float w)
 
 		if(Multiple)
 			str_append(aBuffer, ", ", sizeof(aBuffer));
-		if(m_IsGameTypeRace)
-			if (g_Config.m_ClShowIDs)
-			{
-				char aId[4];
-				str_format(aId,sizeof(aId),"%d:",pInfo->m_ClientID);
-				str_append(aBuffer, aId, sizeof(aBuffer));
-			}
+		if(g_Config.m_ClShowIDs)
+		{
+			char aId[5];
+			str_format(aId,sizeof(aId),"%d: ",pInfo->m_ClientID);
+			str_append(aBuffer, aId, sizeof(aBuffer));
+		}
 		str_append(aBuffer, m_pClient->m_aClients[pInfo->m_ClientID].m_aName, sizeof(aBuffer));
 		Multiple = true;
 	}
@@ -448,10 +447,10 @@ void CScoreboard::RenderScoreboard(float x, float y, float w, int Team, const ch
 
 		// name
 		TextRender()->SetCursor(&Cursor, NameOffset, y+Spacing, FontSize, TEXTFLAG_RENDER|TEXTFLAG_STOP_AT_END);
-		if (m_IsGameTypeRace && g_Config.m_ClShowIDs)
+		if(g_Config.m_ClShowIDs)
 		{
 			char aId[64] = "";
-			str_format(aId, sizeof(aId),"%d:", pInfo->m_ClientID);
+			str_format(aId, sizeof(aId),"%d: ", pInfo->m_ClientID);
 			str_append(aId, m_pClient->m_aClients[pInfo->m_ClientID].m_aName,sizeof(aId));
 			Cursor.m_LineWidth = NameLength+3;
 			TextRender()->TextEx(&Cursor, aId, -1);
@@ -514,7 +513,7 @@ void CScoreboard::RenderLocalTime(float x)
 
 void CScoreboard::RenderRecordingNotification(float x)
 {
-	if(!m_pClient->DemoRecorder()->IsRecording())
+	if(!m_pClient->DemoRecorder(RECORDER_MANUAL)->IsRecording())
 		return;
 
 	//draw the box
@@ -533,7 +532,7 @@ void CScoreboard::RenderRecordingNotification(float x)
 
 	//draw the text
 	char aBuf[64];
-	int Seconds = m_pClient->DemoRecorder()->Length();
+	int Seconds = m_pClient->DemoRecorder(RECORDER_MANUAL)->Length();
 	str_format(aBuf, sizeof(aBuf), Localize("REC %3d:%02d"), Seconds/60, Seconds%60);
 	TextRender()->Text(0, x+50.0f, 10.0f, 20.0f, aBuf, -1);
 }

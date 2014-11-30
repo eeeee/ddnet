@@ -324,7 +324,7 @@ class NetIntRange(NetIntAny):
 		self.min = str(min)
 		self.max = str(max)
 	def emit_validate(self):
-		return ["ClampInt(\"%s\", pObj->%s, %s, %s);"%(self.name,self.name, self.min, self.max)]
+		return ["pObj->%s = ClampInt(\"%s\", pObj->%s, %s, %s);"%(self.name, self.name, self.name, self.min, self.max)]
 	def emit_unpack_check(self):
 		return ["if(pMsg->%s < %s || pMsg->%s > %s) { m_pMsgFailedOn = \"%s\"; break; }" % (self.name, self.min, self.name, self.max, self.name)]
 
@@ -332,6 +332,6 @@ class NetBool(NetIntRange):
 	def __init__(self, name):
 		NetIntRange.__init__(self,name,0,1)
 
-class NetTick(NetIntRange):
+class NetTick(NetIntAny):
 	def __init__(self, name):
-		NetIntRange.__init__(self,name,0,'max_int')
+		NetIntAny.__init__(self,name)

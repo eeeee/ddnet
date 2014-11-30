@@ -435,6 +435,9 @@ __extension__ typedef long long int64;
 #else
 typedef long long int64;
 #endif
+
+void set_new_tick();
+
 /*
 	Function: time_get
 		Fetches a sample from a high resolution timer.
@@ -1176,6 +1179,9 @@ void swap_endian(void *data, unsigned elem_size, unsigned num);
 typedef void (*DBG_LOGGER)(const char *line);
 void dbg_logger(DBG_LOGGER logger);
 
+#if !defined(CONF_PLATFORM_MACOSX)
+void dbg_enable_threaded();
+#endif
 void dbg_logger_stdout();
 void dbg_logger_debugger();
 void dbg_logger_file(const char *filename);
@@ -1215,6 +1221,10 @@ unsigned str_quickhash(const char *str);
 		message - text to display
 */
 void gui_messagebox(const char *title, const char *message);
+
+int str_utf8_comp_names(const char *a, const char *b);
+
+int str_utf8_isspace(int code);
 
 const char *str_utf8_skip_whitespaces(const char *str);
 
@@ -1295,6 +1305,8 @@ int str_utf8_encode(char *ptr, int chr);
 		- The string is treated as zero-terminated utf8 string.
 */
 int str_utf8_check(const char *str);
+
+int pid();
 
 #ifdef __cplusplus
 }

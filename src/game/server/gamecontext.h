@@ -45,6 +45,12 @@ typedef unsigned __int64 uint64_t;
 			All players (CPlayer::snap)
 
 */
+
+enum
+{
+	NUM_TUNINGZONES = 256
+};
+
 class CGameContext : public IGameServer
 {
 	IServer *m_pServer;
@@ -53,7 +59,7 @@ class CGameContext : public IGameServer
 	CCollision m_Collision;
 	CNetObjHandler m_NetObjHandler;
 	CTuningParams m_Tuning;
-	CTuningParams m_TuningList[256];
+	CTuningParams m_TuningList[NUM_TUNINGZONES];
 
 	static void ConTuneParam(IConsole::IResult *pResult, void *pUserData);
 	static void ConTuneReset(IConsole::IResult *pResult, void *pUserData);
@@ -67,6 +73,8 @@ class CGameContext : public IGameServer
 	static void ConChangeMap(IConsole::IResult *pResult, void *pUserData);
 	static void ConRandomMap(IConsole::IResult *pResult, void *pUserData);
 	static void ConRandomUnfinishedMap(IConsole::IResult *pResult, void *pUserData);
+	static void ConSaveTeam(IConsole::IResult *pResult, void *pUserData);
+	static void ConLoadTeam(IConsole::IResult *pResult, void *pUserData);
 	static void ConRestart(IConsole::IResult *pResult, void *pUserData);
 	static void ConBroadcast(IConsole::IResult *pResult, void *pUserData);
 	static void ConSay(IConsole::IResult *pResult, void *pUserData);
@@ -125,8 +133,8 @@ public:
 	char m_aVoteReason[VOTE_REASON_LENGTH];
 	int m_NumVoteOptions;
 	int m_VoteEnforce;
-	char m_ZoneEnterMsg[256][256]; // 0 is used for switching from or to area without tunings
-	char m_ZoneLeaveMsg[256][256];
+	char m_ZoneEnterMsg[NUM_TUNINGZONES][256]; // 0 is used for switching from or to area without tunings
+	char m_ZoneLeaveMsg[NUM_TUNINGZONES][256];
 	
 	enum
 	{
@@ -161,6 +169,7 @@ public:
 	// network
 	void CallVote(int ClientID, const char *aDesc, const char *aCmd, const char *pReason, const char *aChatmsg);
 	void SendChatTarget(int To, const char *pText);
+	void SendChatTeam(int Team, const char *pText);
 	void SendChat(int ClientID, int Team, const char *pText, int SpamProtectionClientID = -1);
 	void SendEmoticon(int ClientID, int Emoticon);
 	void SendWeaponPickup(int ClientID, int Weapon);
@@ -171,6 +180,9 @@ public:
 	//
 	void CheckPureTuning();
 	void SendTuningParams(int ClientID, int Zone = 0);
+
+	class CVoteOptionServer *GetVoteOption(int Index);
+	void ProgressVoteOptions(int ClientID);
 
 	//
 	//void SwapTeams();
@@ -265,7 +277,10 @@ private:
 
 	static void ConUTF8(IConsole::IResult *pResult, void *pUserData);
 	static void ConDND(IConsole::IResult *pResult, void *pUserData);
-	static void ConMapPoints(IConsole::IResult *pResult, void *pUserData);
+	static void ConMapInfo(IConsole::IResult *pResult, void *pUserData);
+	static void ConTimeout(IConsole::IResult *pResult, void *pUserData);
+	static void ConSave(IConsole::IResult *pResult, void *pUserData);
+	static void ConLoad(IConsole::IResult *pResult, void *pUserData);
 	static void ConMap(IConsole::IResult *pResult, void *pUserData);
 	static void ConTeamRank(IConsole::IResult *pResult, void *pUserData);
 	static void ConRank(IConsole::IResult *pResult, void *pUserData);
@@ -280,12 +295,13 @@ private:
 	static void ConEyeEmote(IConsole::IResult *pResult, void *pUserData);
 	static void ConShowOthers(IConsole::IResult *pResult, void *pUserData);
 	static void ConShowAll(IConsole::IResult *pResult, void *pUserData);
+	static void ConSpecTeam(IConsole::IResult *pResult, void *pUserData);
 	static void ConNinjaJetpack(IConsole::IResult *pResult, void *pUserData);
 	static void ConSayTime(IConsole::IResult *pResult, void *pUserData);
 	static void ConSayTimeAll(IConsole::IResult *pResult, void *pUserData);
 	static void ConTime(IConsole::IResult *pResult, void *pUserData);
 	static void ConSetTimerType(IConsole::IResult *pResult, void *pUserData);
-
+	static void ConProtectedKill(IConsole::IResult *pResult, void *pUserData);
 
 
 
@@ -320,6 +336,7 @@ public:
 	CLayers *Layers() { return &m_Layers; }
 	class IScore *Score() { return m_pScore; }
 	bool m_VoteKick;
+	bool m_VoteSpec;
 	enum
 	{
 		VOTE_ENFORCE_NO_ADMIN = VOTE_ENFORCE_YES + 1,

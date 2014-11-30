@@ -110,31 +110,38 @@ void CGameTeams::OnCharacterFinish(int ClientID)
 	else
 	{
 		m_TeeFinished[ClientID] = true;
-		if (TeamFinished(m_Core.Team(ClientID)))
+
+		CheckTeamFinished(m_Core.Team(ClientID));
+	}
+}
+
+void CGameTeams::CheckTeamFinished(int Team)
+{
+	if (TeamFinished(Team))
+	{
+		CPlayer *TeamPlayers[MAX_CLIENTS];
+		unsigned int PlayersCount = 0;
+
+		for (int i = 0; i < MAX_CLIENTS; ++i)
 		{
-			ChangeTeamState(m_Core.Team(ClientID), TEAMSTATE_FINISHED); //TODO: Make it better
-			//ChangeTeamState(m_Core.Team(ClientID), TEAMSTATE_OPEN);
-
-			CPlayer *TeamPlayers[MAX_CLIENTS];
-			unsigned int PlayersCount = 0;
-
-			for (int i = 0; i < MAX_CLIENTS; ++i)
+			if (Team == m_Core.Team(i))
 			{
-				if (m_Core.Team(ClientID) == m_Core.Team(i))
+				CPlayer* pPlayer = GetPlayer(i);
+				if (pPlayer && pPlayer->IsPlaying())
 				{
-					CPlayer* pPlayer = GetPlayer(i);
-					if (pPlayer && pPlayer->IsPlaying())
-					{
-						OnFinish(pPlayer);
-						m_TeeFinished[i] = false;
+					OnFinish(pPlayer);
+					m_TeeFinished[i] = false;
 
-						TeamPlayers[PlayersCount++] = pPlayer;
-					}
+					TeamPlayers[PlayersCount++] = pPlayer;
 				}
 			}
+		}
 
+		if (PlayersCount > 0)
+		{
+			ChangeTeamState(Team, TEAMSTATE_FINISHED); //TODO: Make it better
+			//ChangeTeamState(Team, TEAMSTATE_OPEN);
 			OnTeamFinish(TeamPlayers, PlayersCount);
-
 		}
 	}
 }
@@ -170,7 +177,14 @@ void CGameTeams::SetForceCharacterTeam(int ClientID, int Team)
 {
 	int OldTeam = m_Core.Team(ClientID);
 
-	ForceLeaveTeam(ClientID);
+	if (Team != m_Core.Team(ClientID))
+		ForceLeaveTeam(ClientID);
+	else
+	{
+		m_TeeFinished[ClientID] = false;
+		if (Count(m_Core.Team(ClientID)) > 0)
+			m_MembersCount[m_Core.Team(ClientID)]--;
+	}
 
 	m_Core.Team(ClientID, Team);
 
@@ -303,7 +317,15 @@ int64_t CGameTeams::TeamMask(int Team, int ExceptID, int Asker)
 						continue; // In different teams
 				} // ShowOthers
 			} // See everything of player you're spectating
-		} // Freeview sees all
+		}
+		else
+		{ // Freeview
+			if (GetPlayer(i)->m_SpecTeam)
+			{ // Show only players in own team when spectating
+				if (m_Core.Team(i) != Team && m_Core.Team(i) != TEAM_SUPER)
+					continue; // in different teams
+			}
+		}
 
 		Mask |= 1LL << i;
 	}
@@ -409,7 +431,13 @@ void CGameTeams::OnTeamFinish(CPlayer** Players, unsigned int Size)
 		PlayerCIDs[i] = Players[i]->GetCID();
 
 		if(g_Config.m_SvRejoinTeam0 && g_Config.m_SvTeam != 3 && (m_Core.Team(Players[i]->GetCID()) >= TEAM_SUPER || !m_TeamLocked[m_Core.Team(Players[i]->GetCID())]))
+		{
 			SetForceCharacterTeam(Players[i]->GetCID(), 0);
+			char aBuf[512];
+			str_format(aBuf, sizeof(aBuf), "%s joined team 0",
+					GameServer()->Server()->ClientName(Players[i]->GetCID()));
+			GameServer()->SendChat(-1, CGameContext::CHAT_ALL, aBuf);
+		}
 	}
 
 	if (CallSaveScore && Size >= 2)
@@ -442,6 +470,8 @@ void CGameTeams::OnFinish(CPlayer* Player)
 	if (time - pData->m_BestTime < 0)
 	{
 		// new record \o/
+		Server()->SaveDemo(Player->GetCID(), time);
+
 		if (diff >= 60)
 			str_format(aBuf, sizeof(aBuf), "New record: %d minute(s) %5.2f second(s) better.",
 					(int) diff / 60, diff - ((int) diff / 60 * 60));
@@ -455,6 +485,8 @@ void CGameTeams::OnFinish(CPlayer* Player)
 	}
 	else if (pData->m_BestTime != 0) // tee has already finished?
 	{
+		Server()->StopRecord(Player->GetCID());
+
 		if (diff <= 0.005)
 		{
 			GameServer()->SendChatTarget(Player->GetCID(),
@@ -471,6 +503,10 @@ void CGameTeams::OnFinish(CPlayer* Player)
 						diff);
 			GameServer()->SendChatTarget(Player->GetCID(), aBuf); //this is private, sent only to the tee
 		}
+	}
+	else
+	{
+		Server()->SaveDemo(Player->GetCID(), time);
 	}
 
 	bool CallSaveScore = false;
@@ -577,7 +613,10 @@ void CGameTeams::OnCharacterDeath(int ClientID, int Weapon)
 	bool Locked = TeamLocked(Team) && Weapon != WEAPON_GAME;
 
 	if (!Locked)
+	{
 		SetForceCharacterTeam(ClientID, 0);
+		CheckTeamFinished(Team);
+	}
 	else
 	{
 		SetForceCharacterTeam(ClientID, Team);
@@ -594,4 +633,23 @@ void CGameTeams::OnCharacterDeath(int ClientID, int Weapon)
 void CGameTeams::SetTeamLock(int Team, bool Lock)
 {
 	m_TeamLocked[Team] = Lock;
+}
+
+void CGameTeams::KillSavedTeam(int Team)
+{
+	// Set so that no finish is accidentally given to some of the players
+	ChangeTeamState(Team, CGameTeams::TEAMSTATE_OPEN);
+
+	for (int i = 0; i < MAX_CLIENTS; i++)
+		if(m_Core.Team(i) == Team && GameServer()->m_apPlayers[i])
+			m_TeeFinished[i] = false;
+
+	for (int i = 0; i < MAX_CLIENTS; i++)
+		if(m_Core.Team(i) == Team && GameServer()->m_apPlayers[i])
+			GameServer()->m_apPlayers[i]->KillCharacter(-2);
+
+	ChangeTeamState(Team, CGameTeams::TEAMSTATE_EMPTY);
+
+	// unlock team when last player leaves
+	SetTeamLock(Team, false);
 }

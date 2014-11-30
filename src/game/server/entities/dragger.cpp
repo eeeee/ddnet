@@ -320,7 +320,7 @@ void CDragger::Snap(int SnappingClient)
 
 		CCharacter * Char = GameServer()->GetPlayerChar(SnappingClient);
 
-		if((GameServer()->m_apPlayers[SnappingClient]->GetTeam() == -1
+		if(SnappingClient > -1 && (GameServer()->m_apPlayers[SnappingClient]->GetTeam() == -1
 					|| GameServer()->m_apPlayers[SnappingClient]->m_Paused)
 				&& GameServer()->m_apPlayers[SnappingClient]->m_SpectatorID != SPEC_FREEVIEW)
 			Char = GameServer()->GetPlayerChar(GameServer()->m_apPlayers[SnappingClient]->m_SpectatorID);
@@ -343,7 +343,7 @@ void CDragger::Snap(int SnappingClient)
 				continue;
 		}
 
-		if (Char && Char->IsAlive() && Target && Target->GetPlayer()->GetCID() != SnappingClient && !Char->GetPlayer()->m_ShowOthers &&
+		if (Char && Char->IsAlive() && Target && Target->IsAlive() && Target->GetPlayer()->GetCID() != Char->GetPlayer()->GetCID() && !Char->GetPlayer()->m_ShowOthers &&
 			(Char->Teams()->m_Core.GetSolo(SnappingClient) || Char->Teams()->m_Core.GetSolo(Target->GetPlayer()->GetCID())))
 		{
 			continue;

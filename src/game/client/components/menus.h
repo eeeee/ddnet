@@ -124,6 +124,7 @@ class CMenus : public CComponent
 	static float ms_FontmodHeight;
 
 	// for settings
+	bool m_NeedRestartSkins;
 	bool m_NeedRestartGraphics;
 	bool m_NeedRestartSound;
 	bool m_NeedSendinfo;
@@ -276,6 +277,7 @@ public:
 		PAGE_INTERNET,
 		PAGE_LAN,
 		PAGE_FAVORITES,
+		PAGE_DDNET,
 		PAGE_DEMOS,
 		PAGE_SETTINGS,
 		PAGE_SYSTEM,
@@ -311,6 +313,9 @@ public:
 	void GhostlistPopulate();
 	void setPopup(int Popup) { m_Popup = Popup; }
 
+	int m_DemoPlayerState;
+	char m_aDemoPlayerPopupHint[256];
+
 	enum
 	{
 		POPUP_NONE=0,
@@ -328,7 +333,11 @@ public:
 		POPUP_PASSWORD,
 		POPUP_QUIT,
 		POPUP_AUTOUPDATE,
-		POPUP_DISCONNECT
+		POPUP_DISCONNECT,
+
+		// demo player states
+		DEMOPLAYER_NONE=0,
+		DEMOPLAYER_SLICE_SAVE,
 	};
 
 private:

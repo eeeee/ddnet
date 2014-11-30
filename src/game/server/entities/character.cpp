@@ -96,6 +96,8 @@ bool CCharacter::Spawn(CPlayer *pPlayer, vec2 Pos)
 	SendZoneMsgs(); // we want a entermessage also on spawn
 	GameServer()->SendTuningParams(m_pPlayer->GetCID(), m_TuneZone);
 
+	Server()->StartRecord(m_pPlayer->GetCID());
+
 	return true;
 }
 
@@ -393,7 +395,7 @@ void CCharacter::FireWeapon()
 				CCharacter *pTarget = apEnts[i];
 
 				//if ((pTarget == this) || GameServer()->Collision()->IntersectLine(ProjStartPos, pTarget->m_Pos, NULL, NULL))
-				if((pTarget == this || !CanCollide(pTarget->GetPlayer()->GetCID())))
+				if((pTarget == this || (pTarget->IsAlive() && !CanCollide(pTarget->GetPlayer()->GetCID()))))
 					continue;
 
 				// set his velocity to fast upward (for now)
@@ -875,6 +877,9 @@ bool CCharacter::IncreaseArmor(int Amount)
 
 void CCharacter::Die(int Killer, int Weapon)
 {
+	if(Server()->IsRecording(m_pPlayer->GetCID()))
+		Server()->StopRecord(m_pPlayer->GetCID());
+
 	// we got to wait 0.5 secs before respawning
 	m_pPlayer->m_RespawnTick = Server()->Tick()+Server()->TickSpeed()/2;
 	int ModeSpecial = GameServer()->m_pController->OnCharacterDeath(this, GameServer()->m_apPlayers[Killer], Weapon);
@@ -1018,22 +1023,29 @@ void CCharacter::Snap(int SnappingClient)
 {
 	int id = m_pPlayer->GetCID();
 
-	if (!Server()->Translate(id, SnappingClient))
+	if(SnappingClient > -1 && !Server()->Translate(id, SnappingClient))
 		return;
 
 	if(NetworkClipped(SnappingClient))
 		return;
 
-	CCharacter* SnapChar = GameServer()->GetPlayerChar(SnappingClient);
-	CPlayer* SnapPlayer = GameServer()->m_apPlayers[SnappingClient];
+	if(SnappingClient > -1)
+	{
+		CCharacter* SnapChar = GameServer()->GetPlayerChar(SnappingClient);
+		CPlayer* SnapPlayer = GameServer()->m_apPlayers[SnappingClient];
 
-	if((SnapPlayer->GetTeam() == TEAM_SPECTATORS || SnapPlayer->m_Paused) && SnapPlayer->m_SpectatorID != -1
-		&& !CanCollide(SnapPlayer->m_SpectatorID) && !SnapPlayer->m_ShowOthers)
-		return;
+		if((SnapPlayer->GetTeam() == TEAM_SPECTATORS || SnapPlayer->m_Paused) && SnapPlayer->m_SpectatorID != -1
+			&& !CanCollide(SnapPlayer->m_SpectatorID) && !SnapPlayer->m_ShowOthers)
+			return;
 
-	if( SnapPlayer->GetTeam() != TEAM_SPECTATORS && !SnapPlayer->m_Paused && SnapChar && !SnapChar->m_Super
-		&& !CanCollide(SnappingClient) && !SnapPlayer->m_ShowOthers)
-		return;
+		if( SnapPlayer->GetTeam() != TEAM_SPECTATORS && !SnapPlayer->m_Paused && SnapChar && !SnapChar->m_Super
+			&& !CanCollide(SnappingClient) && !SnapPlayer->m_ShowOthers)
+			return;
+
+		if((SnapPlayer->GetTeam() == TEAM_SPECTATORS || SnapPlayer->m_Paused) && SnapPlayer->m_SpectatorID == -1
+			&& !CanCollide(SnappingClient) && SnapPlayer->m_SpecTeam)
+			return;
+	}
 
 	if (m_Paused)
 		return;
@@ -1110,13 +1122,21 @@ void CCharacter::Snap(int SnappingClient)
 			pCharacter->m_AmmoCount = (!m_FreezeTime)?m_aWeapons[m_Core.m_ActiveWeapon].m_Ammo:0;
 	}
 
-	if(GetPlayer()->m_Afk)
+	if(GetPlayer()->m_Afk || GetPlayer()->m_Paused)
 		pCharacter->m_Emote = EMOTE_BLINK;
 
 	if(pCharacter->m_Emote == EMOTE_NORMAL)
 	{
 		if(250 - ((Server()->Tick() - m_LastAction)%(250)) < 5)
 			pCharacter->m_Emote = EMOTE_BLINK;
+	}
+
+	if(m_pPlayer->m_Halloween)
+	{
+		if(1200 - ((Server()->Tick() - m_LastAction)%(1200)) < 5)
+		{
+			GameServer()->SendEmoticon(m_pPlayer->GetCID(), EMOTICON_GHOST);
+		}
 	}
 
 	pCharacter->m_PlayerFlags = GetPlayer()->m_PlayerFlags;
@@ -1404,7 +1424,7 @@ void CCharacter::HandleTiles(int Index)
 	if(((m_TileIndex == TILE_BEGIN) || (m_TileFIndex == TILE_BEGIN) || FTile1 == TILE_BEGIN || FTile2 == TILE_BEGIN || FTile3 == TILE_BEGIN || FTile4 == TILE_BEGIN || Tile1 == TILE_BEGIN || Tile2 == TILE_BEGIN || Tile3 == TILE_BEGIN || Tile4 == TILE_BEGIN) && (m_DDRaceState == DDRACE_NONE || m_DDRaceState == DDRACE_FINISHED || (m_DDRaceState == DDRACE_STARTED && !Team())))
 	{
 		bool CanBegin = true;
-		if(g_Config.m_SvResetPickus)
+		if(g_Config.m_SvResetPickups)
 		{
 			for (int i = WEAPON_SHOTGUN; i < NUM_WEAPONS; ++i)
 			{
@@ -1468,7 +1488,7 @@ void CCharacter::HandleTiles(int Index)
 	}
 	else if(((m_TileIndex == TILE_SUPER_START) || (m_TileFIndex == TILE_SUPER_START)) && !m_SuperJump)
 	{
-		GameServer()->SendChatTarget(GetPlayer()->GetCID(),"You have infinite air jumps");
+		GameServer()->SendChatTarget(GetPlayer()->GetCID(),"You have unlimited air jumps");
 		m_SuperJump = true;
 		if (m_Core.m_Jumps == 0)
 		{
@@ -1504,7 +1524,7 @@ void CCharacter::HandleTiles(int Index)
 	}
 	else if(((m_TileIndex == TILE_SUPER_END) || (m_TileFIndex == TILE_SUPER_END)) && m_SuperJump)
 	{
-		GameServer()->SendChatTarget(GetPlayer()->GetCID(), "You don't have infinite air jumps");
+		GameServer()->SendChatTarget(GetPlayer()->GetCID(), "You don't have unlimited air jumps");
 		m_SuperJump = false;
 		if (m_Core.m_Jumps == 0)
 		{

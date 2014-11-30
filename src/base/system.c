@@ -8,6 +8,7 @@
 #include <time.h>
 
 #include "system.h"
+#include "confusables.h"
 
 #if defined(CONF_FAMILY_UNIX)
 	#include <sys/time.h>
@@ -44,6 +45,7 @@
 	#include <fcntl.h>
 	#include <direct.h>
 	#include <errno.h>
+	#include <process.h>
 #else
 	#error NOT IMPLEMENTED
 #endif
@@ -87,12 +89,89 @@ void dbg_break()
 	*((volatile unsigned*)0) = 0x0;
 }
 
+#if !defined(CONF_PLATFORM_MACOSX)
+#define QUEUE_SIZE 16
+
+typedef struct
+{
+	char q[QUEUE_SIZE][1024*4];
+	int begin;
+	int end;
+	SEMAPHORE mutex;
+	SEMAPHORE notempty;
+	SEMAPHORE notfull;
+} Queue;
+
+static int dbg_msg_threaded = 0;
+static Queue log_queue;
+
+int queue_empty(Queue *q)
+{
+	return q->begin == q->end;
+}
+
+int queue_full(Queue *q)
+{
+	return ((q->end+1) % QUEUE_SIZE) == q->begin;
+}
+
+void dbg_msg_thread(void *v)
+{
+	char str[1024*4];
+	int i;
+	int f;
+	while(1)
+	{
+		semaphore_wait(&log_queue.notempty);
+		semaphore_wait(&log_queue.mutex);
+		f = queue_full(&log_queue);
+
+		str_copy(str, log_queue.q[log_queue.begin], sizeof(str));
+
+		log_queue.begin = (log_queue.begin + 1) % QUEUE_SIZE;
+
+		if(f)
+			semaphore_signal(&log_queue.notfull);
+
+		if(!queue_empty(&log_queue))
+			semaphore_signal(&log_queue.notempty);
+
+		semaphore_signal(&log_queue.mutex);
+
+		for(i = 0; i < num_loggers; i++)
+			loggers[i](str);
+	}
+}
+
+void dbg_enable_threaded()
+{
+	Queue *q;
+	void *Thread;
+
+	q = &log_queue;
+	q->begin = 0;
+	q->end = 0;
+	semaphore_init(&q->mutex);
+	semaphore_init(&q->notempty);
+	semaphore_init(&q->notfull);
+	semaphore_signal(&q->mutex);
+	semaphore_signal(&q->notfull);
+
+	dbg_msg_threaded = 1;
+
+	Thread = thread_create(dbg_msg_thread, 0);
+	#if defined(CONF_FAMILY_UNIX)
+		pthread_detach((pthread_t)Thread);
+	#endif
+}
+#endif
+
 void dbg_msg(const char *sys, const char *fmt, ...)
 {
 	va_list args;
-	char str[1024*4];
 	char *msg;
-	int i, len;
+	int len;
+	int e;
 
 	//str_format(str, sizeof(str), "[%08x][%s]: ", (int)time(0), sys);
 	time_t rawtime;
@@ -103,22 +182,140 @@ void dbg_msg(const char *sys, const char *fmt, ...)
 	timeinfo = localtime ( &rawtime );
 
 	strftime (timestr,sizeof(timestr),"%y-%m-%d %H:%M:%S",timeinfo);
-	str_format(str, sizeof(str), "[%s][%s]: ", timestr, sys);
 
-	len = strlen(str);
-	msg = (char *)str + len;
+#if !defined(CONF_PLATFORM_MACOSX)
+	if(dbg_msg_threaded)
+	{
+		semaphore_wait(&log_queue.notfull);
+		semaphore_wait(&log_queue.mutex);
+		e = queue_empty(&log_queue);
 
-	va_start(args, fmt);
+		str_format(log_queue.q[log_queue.end], sizeof(log_queue.q[log_queue.end]), "[%s][%s]: ", timestr, sys);
+
+		len = strlen(log_queue.q[log_queue.end]);
+		msg = (char *)log_queue.q[log_queue.end] + len;
+
+		va_start(args, fmt);
 #if defined(CONF_FAMILY_WINDOWS)
-	_vsnprintf(msg, sizeof(str)-len, fmt, args);
+		_vsnprintf(msg, sizeof(log_queue.q[log_queue.end])-len, fmt, args);
 #else
-	vsnprintf(msg, sizeof(str)-len, fmt, args);
+		vsnprintf(msg, sizeof(log_queue.q[log_queue.end])-len, fmt, args);
 #endif
-	va_end(args);
+		va_end(args);
 
-	for(i = 0; i < num_loggers; i++)
-		loggers[i](str);
+		log_queue.end = (log_queue.end + 1) % QUEUE_SIZE;
+
+		if(e)
+			semaphore_signal(&log_queue.notempty);
+
+		if(!queue_full(&log_queue))
+			semaphore_signal(&log_queue.notfull);
+
+		semaphore_signal(&log_queue.mutex);
+	}
+	else
+#endif
+	{
+		char str[1024*4];
+		int i;
+
+		str_format(str, sizeof(str), "[%s][%s]: ", timestr, sys);
+
+		len = strlen(str);
+		msg = (char *)str + len;
+
+		va_start(args, fmt);
+#if defined(CONF_FAMILY_WINDOWS)
+		_vsnprintf(msg, sizeof(str)-len, fmt, args);
+#else
+		vsnprintf(msg, sizeof(str)-len, fmt, args);
+#endif
+		va_end(args);
+
+		for(i = 0; i < num_loggers; i++)
+			loggers[i](str);
+	}
 }
+
+#if defined(CONF_FAMILY_WINDOWS)
+static void logger_win_console(const char *line)
+{
+	#define _MAX_LENGTH 1024
+	#define _MAX_LENGTH_ERROR (_MAX_LENGTH+32)
+
+	static const int UNICODE_REPLACEMENT_CHAR = 0xfffd;
+
+	static const char *STR_TOO_LONG = "(str too long)";
+	static const char *INVALID_UTF8 = "(invalid utf8)";
+
+	wchar_t wline[_MAX_LENGTH_ERROR];
+	size_t len = 0;
+
+	const char *read = line;
+	const char *error = STR_TOO_LONG;
+	while(len < _MAX_LENGTH)
+	{
+		// Read a character. This also advances the read pointer
+		int glyph = str_utf8_decode(&read);
+		if(glyph < 0)
+		{
+			// If there was an error decoding the UTF-8 sequence,
+			// emit a replacement character. Since the
+			// str_utf8_decode function will not work after such
+			// an error, end the string here.
+			glyph = UNICODE_REPLACEMENT_CHAR;
+			error = INVALID_UTF8;
+		}
+		else if(glyph == 0)
+		{
+			// A character code of 0 signals the end of the string.
+			error = 0;
+			break;
+		}
+		else if(glyph > 0xffff)
+		{
+			// Since the windows console does not really support
+			// UTF-16, don't mind doing actual UTF-16 encoding,
+			// but rather emit a replacement character.
+			glyph = UNICODE_REPLACEMENT_CHAR;
+		}
+
+		// Again, since the windows console does not really support
+		// UTF-16, but rather something along the lines of UCS-2,
+		// simply put the character into the output.
+		wline[len++] = glyph;
+	}
+
+	if(error)
+	{
+		read = error;
+		while(1)
+		{
+			// Errors are simple ascii, no need for UTF-8
+			// decoding
+			char character = *read;
+			if(character == 0)
+				break;
+
+			dbg_assert(len < _MAX_LENGTH_ERROR, "str too short for error");
+			wline[len++] = character;
+			read++;
+		}
+	}
+
+	// Terminate the line
+	dbg_assert(len < _MAX_LENGTH_ERROR, "str too short for \\r");
+	wline[len++] = '\r';
+	dbg_assert(len < _MAX_LENGTH_ERROR, "str too short for \\n");
+	wline[len++] = '\n';
+
+	// Ignore any error that might occur
+	WriteConsoleW(GetStdHandle(STD_OUTPUT_HANDLE), wline, len, 0, 0);
+
+	#undef _MAX_LENGTH
+	#undef _MAX_LENGTH_ERROR
+}
+#endif
 
 static void logger_stdout(const char *line)
 {
@@ -146,7 +343,18 @@ static void logger_file(const char *line)
 	io_flush(logfile);
 }
 
-void dbg_logger_stdout() { dbg_logger(logger_stdout); }
+void dbg_logger_stdout()
+{
+#if defined(CONF_FAMILY_WINDOWS)
+	if(GetFileType(GetStdHandle(STD_OUTPUT_HANDLE)) == FILE_TYPE_CHAR)
+	{
+		dbg_logger(logger_win_console);
+		return;
+	}
+#endif
+	dbg_logger(logger_stdout);
+}
+
 void dbg_logger_debugger() { dbg_logger(logger_debugger); }
 void dbg_logger_file(const char *filename)
 {
@@ -287,28 +495,7 @@ int mem_check_imp()
 IOHANDLE io_open(const char *filename, int flags)
 {
 	if(flags == IOFLAG_READ)
-	{
-	#if defined(CONF_FAMILY_WINDOWS)
-		// check for filename case sensitive
-		WIN32_FIND_DATA finddata;
-		HANDLE handle;
-		int length;
-
-		length = str_length(filename);
-		if(!filename || !length || filename[length-1] == '\\')
-			return 0x0;
-		handle = FindFirstFile(filename, &finddata);
-		if(handle == INVALID_HANDLE_VALUE)
-			return 0x0;
-		else if(str_comp(filename+length-str_length(finddata.cFileName), finddata.cFileName) != 0)
-		{
-			FindClose(handle);
-			return 0x0;
-		}
-		FindClose(handle);
-	#endif
 		return (IOHANDLE)fopen(filename, "rb");
-	}
 	if(flags == IOFLAG_WRITE)
 		return (IOHANDLE)fopen(filename, "wb");
 	return 0x0;
@@ -540,22 +727,36 @@ void lock_release(LOCK lock)
 	#endif
 #endif
 
+static int new_tick = -1;
+
+void set_new_tick()
+{
+	new_tick = 1;
+}
 
 /* -----  time ----- */
 int64 time_get()
 {
+	static int64 last = 0;
+	if(!new_tick)
+		return last;
+	if(new_tick != -1)
+		new_tick = 0;
+
 #if defined(CONF_FAMILY_UNIX)
 	struct timeval val;
 	gettimeofday(&val, NULL);
-	return (int64)val.tv_sec*(int64)1000000+(int64)val.tv_usec;
+	last = (int64)val.tv_sec*(int64)1000000+(int64)val.tv_usec;
+	return last;
 #elif defined(CONF_FAMILY_WINDOWS)
-	static int64 last = 0;
-	int64 t;
-	QueryPerformanceCounter((PLARGE_INTEGER)&t);
-	if(t<last) /* for some reason, QPC can return values in the past */
-		return last;
-	last = t;
-	return t;
+	{
+		int64 t;
+		QueryPerformanceCounter((PLARGE_INTEGER)&t);
+		if(t<last) /* for some reason, QPC can return values in the past */
+			return last;
+		last = t;
+		return t;
+	}
 #else
 	#error not implemented
 #endif
@@ -1522,8 +1723,8 @@ int net_socket_read_wait(NETSOCKET sock, int time)
 	fd_set readfds;
 	int sockid;
 
-	tv.tv_sec = time / 1000;
-	tv.tv_usec = 1000 * (time % 1000);
+	tv.tv_sec = time / 1000000;
+	tv.tv_usec = time % 1000000;
 	sockid = 0;
 
 	FD_ZERO(&readfds);
@@ -1852,6 +2053,45 @@ int str_toint(const char *str) { return atoi(str); }
 float str_tofloat(const char *str) { return atof(str); }
 
 
+int str_utf8_comp_names(const char *a, const char *b)
+{
+	int codeA;
+	int codeB;
+	int diff;
+
+	while(*a && *b)
+	{
+		do
+		{
+			codeA = str_utf8_decode(&a);
+		}
+		while(*a && !str_utf8_isspace(codeA));
+
+		do
+		{
+			codeB = str_utf8_decode(&b);
+		}
+		while(*b && !str_utf8_isspace(codeB));
+
+		diff = codeA - codeB;
+
+		if((diff < 0 && !str_utf8_is_confusable(codeA, codeB))
+		|| (diff > 0 && !str_utf8_is_confusable(codeB, codeA)))
+			return diff;
+	}
+
+	return *a - *b;
+}
+
+int str_utf8_isspace(int code)
+{
+	return code > 0x20 && code != 0xA0 && code != 0x034F && code != 0x2800 &&
+		(code < 0x2000 || code > 0x200F) && (code < 0x2028 || code > 0x202F) &&
+		(code < 0x205F || code > 0x2064) && (code < 0x206A || code > 0x206F) &&
+		(code < 0xFE00 || code > 0xFE0F) && code != 0xFEFF &&
+		(code < 0xFFF9 || code > 0xFFFC);
+}
+
 const char *str_utf8_skip_whitespaces(const char *str)
 {
 	const char *str_old;
@@ -1863,9 +2103,7 @@ const char *str_utf8_skip_whitespaces(const char *str)
 		code = str_utf8_decode(&str);
 
 		// check if unicode is not empty
-		if(code > 0x20 && code != 0xA0 && code != 0x034F && (code < 0x2000 || code > 0x200F) && (code < 0x2028 || code > 0x202F) &&
-			(code < 0x205F || code > 0x2064) && (code < 0x206A || code > 0x206F) && (code < 0xFE00 || code > 0xFE0F) &&
-			code != 0xFEFF && (code < 0xFFF9 || code > 0xFFFC))
+		if(str_utf8_isspace(code))
 		{
 			return str_old;
 		}
@@ -2031,6 +2269,15 @@ unsigned str_quickhash(const char *str)
 	for(; *str; str++)
 		hash = ((hash << 5) + hash) + (*str); /* hash * 33 + c */
 	return hash;
+}
+
+int pid()
+{
+#if defined(CONF_FAMILY_WINDOWS)
+	return _getpid();
+#else
+	return getpid();
+#endif
 }
 
 

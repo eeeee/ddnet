@@ -122,13 +122,13 @@ void CMenus::RenderGame(CUIRect MainView)
 	ButtonBar.VSplitLeft(150.0f, &Button, &ButtonBar);
 
 	static int s_DemoButton = 0;
-	bool Recording = DemoRecorder()->IsRecording();
+	bool Recording = DemoRecorder(RECORDER_MANUAL)->IsRecording();
 	if(DoButton_Menu(&s_DemoButton, Localize(Recording ? "Stop record" : "Record demo"), 0, &Button))	// Localize("Stop record");Localize("Record demo");
 	{
 		if(!Recording)
-			Client()->DemoRecorder_Start("demo", true);
+			Client()->DemoRecorder_Start("demo", true, RECORDER_MANUAL);
 		else
-			Client()->DemoRecorder_Stop();
+			Client()->DemoRecorder_Stop(RECORDER_MANUAL);
 	}
 
 	ButtonBar.VSplitLeft(5.0f, 0, &ButtonBar);
@@ -188,10 +188,10 @@ void CMenus::RenderPlayers(CUIRect MainView)
 
 	for(int i = 0; i < MAX_CLIENTS; ++i)
 	{
-		if(!m_pClient->m_Snap.m_paInfoByTeam[i])
+		if(!m_pClient->m_Snap.m_paInfoByName[i])
 			continue;
 
-		int Index = m_pClient->m_Snap.m_paInfoByTeam[i]->m_ClientID;
+		int Index = m_pClient->m_Snap.m_paInfoByName[i]->m_ClientID;
 
 		if(Index == m_pClient->m_Snap.m_LocalClientID)
 			continue;
@@ -214,10 +214,10 @@ void CMenus::RenderPlayers(CUIRect MainView)
 
 	for(int i = 0, Count = 0; i < MAX_CLIENTS; ++i)
 	{
-		if(!m_pClient->m_Snap.m_paInfoByTeam[i])
+		if(!m_pClient->m_Snap.m_paInfoByName[i])
 			continue;
 
-		int Index = m_pClient->m_Snap.m_paInfoByTeam[i]->m_ClientID;
+		int Index = m_pClient->m_Snap.m_paInfoByName[i]->m_ClientID;
 
 		if(Index == m_pClient->m_Snap.m_LocalClientID)
 			continue;
@@ -476,11 +476,11 @@ void CMenus::RenderServerControlKick(CUIRect MainView, bool FilterSpectators)
 	static int aPlayerIDs[MAX_CLIENTS];
 	for(int i = 0; i < MAX_CLIENTS; i++)
 	{
-		if(!m_pClient->m_Snap.m_paInfoByTeam[i])
+		if(!m_pClient->m_Snap.m_paInfoByName[i])
 			continue;
 
-		int Index = m_pClient->m_Snap.m_paInfoByTeam[i]->m_ClientID;
-		if(Index == m_pClient->m_Snap.m_LocalClientID || (FilterSpectators && m_pClient->m_Snap.m_paInfoByTeam[i]->m_Team == TEAM_SPECTATORS))
+		int Index = m_pClient->m_Snap.m_paInfoByName[i]->m_ClientID;
+		if(Index == m_pClient->m_Snap.m_LocalClientID || (FilterSpectators && m_pClient->m_Snap.m_paInfoByName[i]->m_Team == TEAM_SPECTATORS))
 			continue;
 		if(m_CallvoteSelectedPlayer == Index)
 			Selected = NumOptions;
@@ -765,11 +765,21 @@ void CMenus::RenderInGameBrowser(CUIRect MainView)
 	//box.VSplitLeft(4.0f, 0, &box);
 	Box.VSplitLeft(110.0f, &Button, &Box);
 	static int s_FavoritesButton=0;
-	if(DoButton_MenuTab(&s_FavoritesButton, Localize("Favorites"), ActivePage==PAGE_FAVORITES, &Button, CUI::CORNER_TR))
+	if(DoButton_MenuTab(&s_FavoritesButton, Localize("Favorites"), ActivePage==PAGE_FAVORITES, &Button, 0))
 	{
 		if (PrevPage != PAGE_SETTINGS || LastServersPage != PAGE_FAVORITES) ServerBrowser()->Refresh(IServerBrowser::TYPE_FAVORITES);
 		LastServersPage = PAGE_FAVORITES;
 		NewPage  = PAGE_FAVORITES;
+	}
+
+	//box.VSplitLeft(4.0f, 0, &box);
+	Box.VSplitLeft(110.0f, &Button, &Box);
+	static int s_DDNetButton=0;
+	if(DoButton_MenuTab(&s_DDNetButton, Localize("DDNet"), ActivePage==PAGE_DDNET, &Button, CUI::CORNER_TR))
+	{
+		if (PrevPage != PAGE_SETTINGS || LastServersPage != PAGE_DDNET) ServerBrowser()->Refresh(IServerBrowser::TYPE_DDNET);
+		LastServersPage = PAGE_DDNET;
+		NewPage  = PAGE_DDNET;
 	}
 
 	if(NewPage != -1)

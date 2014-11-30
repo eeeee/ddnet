@@ -1,6 +1,5 @@
 /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
-
 #include <base/math.h>
 #include <base/system.h>
 
@@ -24,6 +23,7 @@
 #include <engine/shared/packer.h>
 #include <engine/shared/protocol.h>
 #include <engine/shared/snapshot.h>
+#include <engine/shared/fifoconsole.h>
 
 #include <mastersrv/mastersrv.h>
 
@@ -35,7 +35,6 @@
 
 #include "register.h"
 #include "server.h"
-#include "fifoconsole.h"
 
 #if defined(CONF_FAMILY_WINDOWS)
 	#define _WIN32_WINNT 0x0501
@@ -51,9 +50,7 @@ static const char *StrLtrim(const char *pStr)
 		int Code = str_utf8_decode(&pStr);
 		
 		// check if unicode is not empty
-		if(Code > 0x20 && Code != 0xA0 && Code != 0x034F && (Code < 0x2000 || Code > 0x200F) && (Code < 0x2028 || Code > 0x202F) &&
-			(Code < 0x205F || Code > 0x2064) && (Code < 0x206A || Code > 0x206F) && (Code < 0xFE00 || Code > 0xFE0F) &&
-			Code != 0xFEFF && (Code < 0xFFF9 || Code > 0xFFFC))
+		if(str_utf8_isspace(Code))
 		{
 			return pStrOld;
 		}
@@ -71,9 +68,7 @@ static void StrRtrim(char *pStr)
 		int Code = str_utf8_decode(&p);
 		
 		// check if unicode is not empty
-		if(Code > 0x20 && Code != 0xA0 && Code != 0x034F && (Code < 0x2000 || Code > 0x200F) && (Code < 0x2028 || Code > 0x202F) &&
-			(Code < 0x205F || Code > 0x2064) && (Code < 0x206A || Code > 0x206F) && (Code < 0xFE00 || Code > 0xFE0F) &&
-			Code != 0xFEFF && (Code < 0xFFF9 || Code > 0xFFFC))
+		if(str_utf8_isspace(Code))
 		{
 			pEnd = 0;
 		}
@@ -297,8 +292,11 @@ void CServer::CClient::Reset()
 	m_Score = 0;
 }
 
-CServer::CServer() : m_DemoRecorder(&m_SnapshotDelta)
+CServer::CServer()
 {
+	for(int i = 0; i < MAX_CLIENTS+1; i++)
+		m_aDemoRecorder[i] = CDemoRecorder(&m_SnapshotDelta);
+
 	m_TickSpeed = SERVER_TICK_SPEED;
 
 	m_pGameServer = 0;
@@ -345,7 +343,7 @@ int CServer::TrySetClientName(int ClientID, const char *pName)
 	for(int i = 0; i < MAX_CLIENTS; i++)
 		if(i != ClientID && m_aClients[i].m_State >= CClient::STATE_READY)
 		{
-			if(str_comp(pName, m_aClients[i].m_aName) == 0)
+			if(str_utf8_comp_names(pName, m_aClients[i].m_aName) == 0)
 				return -1;
 		}
 
@@ -561,8 +559,12 @@ int CServer::SendMsgEx(CMsgPacker *pMsg, int Flags, int ClientID, bool System)
 		Packet.m_Flags |= NETSENDFLAG_FLUSH;
 
 	// write message to demo recorder
-	if(m_DemoRecorder.IsRecording() && !(Flags&MSGFLAG_NORECORD))
-		m_DemoRecorder.RecordMessage(pMsg->Data(), pMsg->Size());
+	if(!(Flags&MSGFLAG_NORECORD))
+	{
+		if(ClientID > -1)
+			m_aDemoRecorder[ClientID].RecordMessage(pMsg->Data(), pMsg->Size());
+		m_aDemoRecorder[MAX_CLIENTS].RecordMessage(pMsg->Data(), pMsg->Size());
+	}
 
 	if(!(Flags&MSGFLAG_NOSEND))
 	{
@@ -588,7 +590,7 @@ void CServer::DoSnapshot()
 	GameServer()->OnPreSnap();
 
 	// create snapshot for demo recording
-	if(m_DemoRecorder.IsRecording())
+	if(m_aDemoRecorder[MAX_CLIENTS].IsRecording())
 	{
 		char aData[CSnapshot::MAX_SIZE];
 		int SnapshotSize;
@@ -599,7 +601,7 @@ void CServer::DoSnapshot()
 		SnapshotSize = m_SnapshotBuilder.Finish(aData);
 
 		// write snapshot
-		m_DemoRecorder.RecordSnapshot(Tick(), aData, SnapshotSize);
+		m_aDemoRecorder[MAX_CLIENTS].RecordSnapshot(Tick(), aData, SnapshotSize);
 	}
 
 	// create snapshots for all clients
@@ -636,6 +638,10 @@ void CServer::DoSnapshot()
 
 			// finish snapshot
 			SnapshotSize = m_SnapshotBuilder.Finish(pData);
+
+			if(m_aDemoRecorder[i].IsRecording())
+				m_aDemoRecorder[i].RecordSnapshot(Tick(), aData, SnapshotSize);
+
 			Crc = pData->Crc();
 
 			// remove old snapshos
@@ -724,8 +730,11 @@ int CServer::NewClientCallback(int ClientID, void *pUser)
 	pThis->m_aClients[ClientID].m_aClan[0] = 0;
 	pThis->m_aClients[ClientID].m_Country = -1;
 	pThis->m_aClients[ClientID].m_Authed = AUTHED_NO;
+	pThis->m_aClients[ClientID].m_LastAuthed = AUTHED_NO;
 	pThis->m_aClients[ClientID].m_AuthTries = 0;
 	pThis->m_aClients[ClientID].m_pRconCmdToSend = 0;
+	pThis->m_aClients[ClientID].m_NonceCount = 0;
+	pThis->m_aClients[ClientID].m_LastNonceCount = 0;
 	pThis->m_aClients[ClientID].m_Traffic = 0;
 	pThis->m_aClients[ClientID].m_TrafficSince = 0;
 	memset(&pThis->m_aClients[ClientID].m_Addr, 0, sizeof(NETADDR));
@@ -752,6 +761,7 @@ int CServer::DelClientCallback(int ClientID, const char *pReason, void *pUser)
 	pThis->m_aClients[ClientID].m_aClan[0] = 0;
 	pThis->m_aClients[ClientID].m_Country = -1;
 	pThis->m_aClients[ClientID].m_Authed = AUTHED_NO;
+	pThis->m_aClients[ClientID].m_LastAuthed = AUTHED_NO;
 	pThis->m_aClients[ClientID].m_AuthTries = 0;
 	pThis->m_aClients[ClientID].m_pRconCmdToSend = 0;
 	pThis->m_aClients[ClientID].m_Traffic = 0;
@@ -904,18 +914,81 @@ void CServer::ProcessClientPacket(CNetChunk *pPacket)
 					return;
 				}
 
-				m_aClients[ClientID].m_State = CClient::STATE_CONNECTING;
-				SendMap(ClientID);
+				bool SpoofProtectedAlready = false;
+				NETADDR ThisAddr = *m_NetServer.ClientAddr(ClientID);
+				ThisAddr.port = 0;
+				for(int i = 0; i < m_NetServer.MaxClients(); i++)
+				{
+					NETADDR OtherAddr = *m_NetServer.ClientAddr(i);
+					OtherAddr.port = 0;
+					if (m_aClients[i].m_State == CClient::STATE_INGAME && net_addr_comp(&ThisAddr, &OtherAddr) == 0)
+						SpoofProtectedAlready = true;
+				}
+
+				if(g_Config.m_SvSpoofProtection && !SpoofProtectedAlready)
+				{
+					//set nonce
+					m_aClients[ClientID].m_Nonce = rand()%5+5;//5-9
+					m_aClients[ClientID].m_LastNonceCount = Tick();
+					m_aClients[ClientID].m_State = CClient::STATE_SPOOFCHECK;
+
+					CMsgPacker Msg(NETMSG_MAP_CHANGE);
+					Msg.AddString("", 0);//mapname
+					Msg.AddInt(0);//crc
+					Msg.AddInt(0);//size
+					SendMsgEx(&Msg, MSGFLAG_VITAL|MSGFLAG_FLUSH, ClientID, true);
+				}
+				else
+				{
+					m_aClients[ClientID].m_State = CClient::STATE_CONNECTING;
+					SendMap(ClientID);
+				}
 			}
 		}
 		else if(Msg == NETMSG_REQUEST_MAP_DATA)
 		{
+			if(g_Config.m_SvSpoofProtection)
+			{
+				if(m_aClients[ClientID].m_State == CClient::STATE_SPOOFCHECK)
+				{
+					int Chunk = Unpacker.GetInt();
+					if(m_aClients[ClientID].m_NonceCount != Chunk || m_aClients[ClientID].m_LastNonceCount+TickSpeed() < Tick())//wrong number sent
+						m_NetServer.Drop(ClientID, "Kicked by spoofprotection. Please try again!");
+
+					m_aClients[ClientID].m_LastNonceCount = Tick();
+
+					if(m_aClients[ClientID].m_NonceCount != m_aClients[ClientID].m_Nonce)
+					{
+						CMsgPacker Msg(NETMSG_MAP_DATA);
+						Msg.AddInt(0);//last
+						Msg.AddInt(0);//crc
+						Msg.AddInt(m_aClients[ClientID].m_NonceCount);//chunk
+						Msg.AddInt(1);//size
+						Msg.AddRaw("a", 1);//data
+						SendMsgEx(&Msg, MSGFLAG_VITAL|MSGFLAG_FLUSH, ClientID, true);
+						m_aClients[ClientID].m_NonceCount++;
+					}
+					else//done. continue as usual
+					{
+						m_aClients[ClientID].m_State = CClient::STATE_POSTSPOOFCHECK;
+						dbg_msg(0, "done");
+					}
+
+					return;
+				}
+				else if(m_aClients[ClientID].m_State == CClient::STATE_POSTSPOOFCHECK)
+				{//Too many noncenumbers sent
+					m_NetServer.Drop(ClientID, "Kicked by spoofprotection. Please try again!");
+					return;
+				}
+			}
+
 			if(m_aClients[ClientID].m_State < CClient::STATE_CONNECTING)
 				return; // no map w/o password, sorry guys
 
 			int Chunk = Unpacker.GetInt();
-			int ChunkSize = 1024-128;
-			int Offset = Chunk * ChunkSize;
+			unsigned int ChunkSize = 1024-128;
+			unsigned int Offset = Chunk * ChunkSize;
 			int Last = 0;
 
 			lastask[ClientID] = Chunk;
@@ -1047,16 +1120,21 @@ void CServer::ProcessClientPacket(CNetChunk *pPacket)
 			} else
 			if(Unpacker.Error() == 0 && m_aClients[ClientID].m_Authed)
 			{
-				char aBuf[256];
-				str_format(aBuf, sizeof(aBuf), "ClientID=%d rcon='%s'", ClientID, pCmd);
-				Console()->Print(IConsole::OUTPUT_LEVEL_ADDINFO, "server", aBuf);
-				m_RconClientID = ClientID;
-				m_RconAuthLevel = m_aClients[ClientID].m_Authed;
-				Console()->SetAccessLevel(m_aClients[ClientID].m_Authed == AUTHED_ADMIN ? IConsole::ACCESS_LEVEL_ADMIN : m_aClients[ClientID].m_Authed == AUTHED_MOD ? IConsole::ACCESS_LEVEL_MOD : IConsole::ACCESS_LEVEL_USER);
-				Console()->ExecuteLineFlag(pCmd, CFGFLAG_SERVER, ClientID);
-				Console()->SetAccessLevel(IConsole::ACCESS_LEVEL_ADMIN);
-				m_RconClientID = IServer::RCON_CID_SERV;
-				m_RconAuthLevel = AUTHED_ADMIN;
+				CGameContext *GameServer = (CGameContext *) m_pGameServer;
+				if (GameServer->m_apPlayers[ClientID] && (GameServer->m_apPlayers[ClientID]->m_ClientVersion < VERSION_DDNET_RCONPROTECT || m_aClients[ClientID].m_LastAuthed))
+				{
+					char aBuf[256];
+					str_format(aBuf, sizeof(aBuf), "ClientID=%d rcon='%s'", ClientID, pCmd);
+					Console()->Print(IConsole::OUTPUT_LEVEL_ADDINFO, "server", aBuf);
+					m_RconClientID = ClientID;
+					m_RconAuthLevel = m_aClients[ClientID].m_Authed;
+					Console()->SetAccessLevel(m_aClients[ClientID].m_Authed == AUTHED_ADMIN ? IConsole::ACCESS_LEVEL_ADMIN : m_aClients[ClientID].m_Authed == AUTHED_MOD ? IConsole::ACCESS_LEVEL_MOD : IConsole::ACCESS_LEVEL_USER);
+					Console()->ExecuteLineFlag(pCmd, CFGFLAG_SERVER, ClientID);
+					Console()->SetAccessLevel(IConsole::ACCESS_LEVEL_ADMIN);
+					m_RconClientID = IServer::RCON_CID_SERV;
+					m_RconAuthLevel = AUTHED_ADMIN;
+					m_aClients[ClientID].m_LastAuthed = AUTHED_NO;
+				}
 			}
 		}
 		else if(Msg == NETMSG_RCON_AUTH)
@@ -1073,43 +1151,49 @@ void CServer::ProcessClientPacket(CNetChunk *pPacket)
 				}
 				else if(g_Config.m_SvRconPassword[0] && str_comp(pPw, g_Config.m_SvRconPassword) == 0)
 				{
-					CMsgPacker Msg(NETMSG_RCON_AUTH_STATUS);
-					Msg.AddInt(1);	//authed
-					Msg.AddInt(1);	//cmdlist
-					SendMsgEx(&Msg, MSGFLAG_VITAL, ClientID, true);
+					m_aClients[ClientID].m_LastAuthed = AUTHED_ADMIN;
+					if(m_aClients[ClientID].m_Authed != AUTHED_ADMIN)
+					{
+						CMsgPacker Msg(NETMSG_RCON_AUTH_STATUS);
+						Msg.AddInt(1);	//authed
+						Msg.AddInt(1);	//cmdlist
+						SendMsgEx(&Msg, MSGFLAG_VITAL, ClientID, true);
 
-					m_aClients[ClientID].m_Authed = AUTHED_ADMIN;
-					int SendRconCmds = Unpacker.GetInt();
-					if(Unpacker.Error() == 0 && SendRconCmds)
-						m_aClients[ClientID].m_pRconCmdToSend = Console()->FirstCommandInfo(IConsole::ACCESS_LEVEL_ADMIN, CFGFLAG_SERVER);
-					SendRconLine(ClientID, "Admin authentication successful. Full remote console access granted.");
-					char aBuf[256];
-					str_format(aBuf, sizeof(aBuf), "ClientID=%d authed (admin)", ClientID);
-					Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "server", aBuf);
+						m_aClients[ClientID].m_Authed = AUTHED_ADMIN;
+						int SendRconCmds = Unpacker.GetInt();
+						if(Unpacker.Error() == 0 && SendRconCmds)
+							m_aClients[ClientID].m_pRconCmdToSend = Console()->FirstCommandInfo(IConsole::ACCESS_LEVEL_ADMIN, CFGFLAG_SERVER);
+						SendRconLine(ClientID, "Admin authentication successful. Full remote console access granted.");
+						char aBuf[256];
+						str_format(aBuf, sizeof(aBuf), "ClientID=%d authed (admin)", ClientID);
+						Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "server", aBuf);
 
-					// DDRace
-
-					GameServer()->OnSetAuthed(ClientID, AUTHED_ADMIN);
+						// DDRace
+						GameServer()->OnSetAuthed(ClientID, AUTHED_ADMIN);
+					}
 				}
 				else if(g_Config.m_SvRconModPassword[0] && str_comp(pPw, g_Config.m_SvRconModPassword) == 0)
 				{
-					CMsgPacker Msg(NETMSG_RCON_AUTH_STATUS);
-					Msg.AddInt(1);	//authed
-					Msg.AddInt(1);	//cmdlist
-					SendMsgEx(&Msg, MSGFLAG_VITAL, ClientID, true);
+					m_aClients[ClientID].m_LastAuthed = AUTHED_MOD;
+					if(m_aClients[ClientID].m_Authed != AUTHED_MOD)
+					{
+						CMsgPacker Msg(NETMSG_RCON_AUTH_STATUS);
+						Msg.AddInt(1);	//authed
+						Msg.AddInt(1);	//cmdlist
+						SendMsgEx(&Msg, MSGFLAG_VITAL, ClientID, true);
 
-					m_aClients[ClientID].m_Authed = AUTHED_MOD;
-					int SendRconCmds = Unpacker.GetInt();
-					if(Unpacker.Error() == 0 && SendRconCmds)
-						m_aClients[ClientID].m_pRconCmdToSend = Console()->FirstCommandInfo(IConsole::ACCESS_LEVEL_MOD, CFGFLAG_SERVER);
-					SendRconLine(ClientID, "Moderator authentication successful. Limited remote console access granted.");
-					char aBuf[256];
-					str_format(aBuf, sizeof(aBuf), "ClientID=%d authed (moderator)", ClientID);
-					Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "server", aBuf);
+						m_aClients[ClientID].m_Authed = AUTHED_MOD;
+						int SendRconCmds = Unpacker.GetInt();
+						if(Unpacker.Error() == 0 && SendRconCmds)
+							m_aClients[ClientID].m_pRconCmdToSend = Console()->FirstCommandInfo(IConsole::ACCESS_LEVEL_MOD, CFGFLAG_SERVER);
+						SendRconLine(ClientID, "Moderator authentication successful. Limited remote console access granted.");
+						char aBuf[256];
+						str_format(aBuf, sizeof(aBuf), "ClientID=%d authed (moderator)", ClientID);
+						Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "server", aBuf);
 
-					// DDRace
-
-					GameServer()->OnSetAuthed(ClientID, AUTHED_MOD);
+						// DDRace
+						GameServer()->OnSetAuthed(ClientID, AUTHED_MOD);
+					}
 				}
 				else if(g_Config.m_SvRconMaxTries)
 				{
@@ -1336,8 +1420,8 @@ void CServer::PumpNetwork()
 				continue;
 	
 			int Chunk = lastsent[i]++;
-			int ChunkSize = 1024-128;
-			int Offset = Chunk * ChunkSize;
+			unsigned int ChunkSize = 1024-128;
+			unsigned int Offset = Chunk * ChunkSize;
 			int Last = 0;
 	
 			// drop faulty map data requests
@@ -1370,6 +1454,20 @@ void CServer::PumpNetwork()
 
 	m_ServerBan.Update();
 	m_Econ.Update();
+
+	if(g_Config.m_SvSpoofProtection)
+	{
+		for(int i = 0; i < MAX_CLIENTS; i++)
+		{
+			if(m_aClients[i].m_State == CClient::STATE_POSTSPOOFCHECK)
+			//if(m_aClients[i].m_State == CClient::STATE_POSTSPOOFCHECK &&
+			//	m_aClients[i].m_LastNonceCount+TickSpeed() < Tick())
+			{ // when the time is over: continue joining process
+				m_aClients[i].m_State = CClient::STATE_CONNECTING;
+				SendMap(i);
+			}
+		}
+	}
 }
 
 char *CServer::GetMapName()
@@ -1405,7 +1503,18 @@ int CServer::LoadMap(const char *pMapName)
 		return 0;
 
 	// stop recording when we change map
-	m_DemoRecorder.Stop();
+	for(int i = 0; i < MAX_CLIENTS+1; i++)
+	{
+		m_aDemoRecorder[i].Stop();
+
+		// remove tmp demos
+		if(i < MAX_CLIENTS)
+		{
+			char aPath[256];
+			str_format(aPath, sizeof(aPath), "demos/%s_%d_%d_tmp.demo", m_aCurrentMap, g_Config.m_SvPort, i);
+			Storage()->RemoveFile(aPath, IStorage::TYPE_SAVE);
+		}
+	}
 
 	// reinit snapshot ids
 	m_IDPool.TimeoutIDs();
@@ -1422,7 +1531,7 @@ int CServer::LoadMap(const char *pMapName)
 	// load complete map into memory for download
 	{
 		IOHANDLE File = Storage()->OpenFile(aBuf, IOFLAG_READ, IStorage::TYPE_ALL);
-		m_CurrentMapSize = (int)io_length(File);
+		m_CurrentMapSize = (unsigned int)io_length(File);
 		if(m_pCurrentMapData)
 			mem_free(m_pCurrentMapData);
 		m_pCurrentMapData = (unsigned char *)mem_alloc(m_CurrentMapSize, 1);
@@ -1491,8 +1600,7 @@ int CServer::Run()
 
 	// start game
 	{
-		int64 ReportTime = time_get();
-		int ReportInterval = 3;
+		bool NonActive = false;
 
 		m_Lastheartbeat = 0;
 		m_GameStartTime = time_get();
@@ -1505,6 +1613,11 @@ int CServer::Run()
 
 		while(m_RunServer)
 		{
+			if(NonActive)
+				PumpNetwork();
+
+			set_new_tick();
+
 			int64 t = time_get();
 			int NewTicks = 0;
 
@@ -1578,34 +1691,10 @@ int CServer::Run()
 			// master server stuff
 			m_Register.RegisterUpdate(m_NetServer.NetType());
 
-			PumpNetwork();
+			if(!NonActive)
+				PumpNetwork();
 
-			if(ReportTime < time_get())
-			{
-				if(g_Config.m_Debug)
-				{
-					/*
-					static NETSTATS prev_stats;
-					NETSTATS stats;
-					netserver_stats(net, &stats);
-
-					perf_next();
-
-					if(config.dbg_pref)
-						perf_dump(&rootscope);
-
-					dbg_msg("server", "send=%8d recv=%8d",
-						(stats.send_bytes - prev_stats.send_bytes)/reportinterval,
-						(stats.recv_bytes - prev_stats.recv_bytes)/reportinterval);
-
-					prev_stats = stats;
-					*/
-				}
-
-				ReportTime += time_freq()*ReportInterval;
-			}
-
-			bool NonActive = true;
+			NonActive = true;
 
 			for(int c = 0; c < MAX_CLIENTS; c++)
 				if(m_aClients[c].m_State != CClient::STATE_EMPTY)
@@ -1613,9 +1702,23 @@ int CServer::Run()
 
 			// wait for incoming data
 			if (NonActive)
-				net_socket_read_wait(m_NetServer.Socket(), 1000);
+			{
+				if(g_Config.m_SvShutdownWhenEmpty)
+					m_RunServer = false;
+				else
+					net_socket_read_wait(m_NetServer.Socket(), time_freq());
+			}
 			else
-				net_socket_read_wait(m_NetServer.Socket(), 5);
+			{
+				set_new_tick();
+				int64 t = time_get();
+				int x = (TickStartTime(m_CurrentGameTick+1) - t) * 1000000 / time_freq() + 1;
+
+				if(x > 0)
+				{
+					net_socket_read_wait(m_NetServer.Socket(), x);
+				}
+			}
 		}
 	}
 	// disconnect all clients on shutdown
@@ -1639,7 +1742,7 @@ void CServer::ConTestingCommands(CConsole::IResult *pResult, void *pUser)
 {
 	char aBuf[128];
 	str_format(aBuf, sizeof(aBuf), "Value: %d", g_Config.m_SvTestingCommands);
-	((CConsole*)pUser)->Print(CConsole::OUTPUT_LEVEL_STANDARD, "Console", aBuf);
+	((CConsole*)pUser)->Print(CConsole::OUTPUT_LEVEL_STANDARD, "console", aBuf);
 }
 
 void CServer::ConKick(IConsole::IResult *pResult, void *pUser)
@@ -1669,8 +1772,8 @@ void CServer::ConStatus(IConsole::IResult *pResult, void *pUser)
 			{
 				const char *pAuthStr = pThis->m_aClients[i].m_Authed == CServer::AUTHED_ADMIN ? "(Admin)" :
 										pThis->m_aClients[i].m_Authed == CServer::AUTHED_MOD ? "(Mod)" : "";
-				str_format(aBuf, sizeof(aBuf), "id=%d addr=%s name='%s' score=%d %s", i, aAddrStr,
-					pThis->m_aClients[i].m_aName, pThis->m_aClients[i].m_Score, pAuthStr);
+				str_format(aBuf, sizeof(aBuf), "id=%d addr=%s name='%s' score=%d client=%d %s", i, aAddrStr,
+					pThis->m_aClients[i].m_aName, pThis->m_aClients[i].m_Score, ((CGameContext *)(pThis->GameServer()))->m_apPlayers[i]->m_ClientVersion, pAuthStr);
 			}
 			else
 				str_format(aBuf, sizeof(aBuf), "id=%d addr=%s connecting", i, aAddrStr);
@@ -1688,12 +1791,12 @@ void CServer::DemoRecorder_HandleAutoStart()
 {
 	if(g_Config.m_SvAutoDemoRecord)
 	{
-		m_DemoRecorder.Stop();
+		m_aDemoRecorder[MAX_CLIENTS].Stop();
 		char aFilename[128];
 		char aDate[20];
 		str_timestamp(aDate, sizeof(aDate));
 		str_format(aFilename, sizeof(aFilename), "demos/%s_%s.demo", "auto/autorecord", aDate);
-		m_DemoRecorder.Start(Storage(), m_pConsole, aFilename, GameServer()->NetVersion(), m_aCurrentMap, m_CurrentMapCrc, "server");
+		m_aDemoRecorder[MAX_CLIENTS].Start(Storage(), m_pConsole, aFilename, GameServer()->NetVersion(), m_aCurrentMap, m_CurrentMapCrc, "server");
 		if(g_Config.m_SvAutoDemoMax)
 		{
 			// clean up auto recorded demos
@@ -1705,7 +1808,49 @@ void CServer::DemoRecorder_HandleAutoStart()
 
 bool CServer::DemoRecorder_IsRecording()
 {
-	return m_DemoRecorder.IsRecording();
+	return m_aDemoRecorder[MAX_CLIENTS].IsRecording();
+}
+
+void CServer::SaveDemo(int ClientID, float Time)
+{
+	if(IsRecording(ClientID))
+	{
+		m_aDemoRecorder[ClientID].Stop();
+
+		// rename the demo
+		char aOldFilename[256];
+		char aNewFilename[256];
+		str_format(aOldFilename, sizeof(aOldFilename), "demos/%s_%d_%d_tmp.demo", m_aCurrentMap, g_Config.m_SvPort, ClientID);
+		str_format(aNewFilename, sizeof(aNewFilename), "demos/%s_%s_%5.2f.demo", m_aCurrentMap, m_aClients[ClientID].m_aName, Time);
+		Storage()->RenameFile(aOldFilename, aNewFilename, IStorage::TYPE_SAVE);
+	}
+}
+
+void CServer::StartRecord(int ClientID)
+{
+	if(g_Config.m_SvPlayerDemoRecord)
+	{
+		char aFilename[128];
+		str_format(aFilename, sizeof(aFilename), "demos/%s_%d_%d_tmp.demo", m_aCurrentMap, g_Config.m_SvPort, ClientID);
+		m_aDemoRecorder[ClientID].Start(Storage(), Console(), aFilename, GameServer()->NetVersion(), m_aCurrentMap, m_CurrentMapCrc, "client");
+	}
+}
+
+void CServer::StopRecord(int ClientID)
+{
+	if(IsRecording(ClientID))
+	{
+		m_aDemoRecorder[ClientID].Stop();
+
+		char aFilename[128];
+		str_format(aFilename, sizeof(aFilename), "demos/%s_%d_%d_tmp.demo", m_aCurrentMap, g_Config.m_SvPort, ClientID);
+		Storage()->RemoveFile(aFilename, IStorage::TYPE_SAVE);
+	}
+}
+
+bool CServer::IsRecording(int ClientID)
+{
+	return m_aDemoRecorder[ClientID].IsRecording();
 }
 
 void CServer::ConRecord(IConsole::IResult *pResult, void *pUser)
@@ -1721,12 +1866,12 @@ void CServer::ConRecord(IConsole::IResult *pResult, void *pUser)
 		str_timestamp(aDate, sizeof(aDate));
 		str_format(aFilename, sizeof(aFilename), "demos/demo_%s.demo", aDate);
 	}
-	pServer->m_DemoRecorder.Start(pServer->Storage(), pServer->Console(), aFilename, pServer->GameServer()->NetVersion(), pServer->m_aCurrentMap, pServer->m_CurrentMapCrc, "server");
+	pServer->m_aDemoRecorder[MAX_CLIENTS].Start(pServer->Storage(), pServer->Console(), aFilename, pServer->GameServer()->NetVersion(), pServer->m_aCurrentMap, pServer->m_CurrentMapCrc, "server");
 }
 
 void CServer::ConStopRecord(IConsole::IResult *pResult, void *pUser)
 {
-	((CServer *)pUser)->m_DemoRecorder.Stop();
+	((CServer *)pUser)->m_aDemoRecorder[MAX_CLIENTS].Stop();
 }
 
 void CServer::ConMapReload(IConsole::IResult *pResult, void *pUser)
@@ -1747,6 +1892,7 @@ void CServer::ConLogout(IConsole::IResult *pResult, void *pUser)
 		pServer->SendMsgEx(&Msg, MSGFLAG_VITAL, pServer->m_RconClientID, true);
 
 		pServer->m_aClients[pServer->m_RconClientID].m_Authed = AUTHED_NO;
+		pServer->m_aClients[pServer->m_RconClientID].m_LastAuthed = AUTHED_NO;
 		pServer->m_aClients[pServer->m_RconClientID].m_AuthTries = 0;
 		pServer->m_aClients[pServer->m_RconClientID].m_pRconCmdToSend = 0;
 		pServer->SendRconLine(pServer->m_RconClientID, "Logout successful.");
@@ -1809,6 +1955,68 @@ void CServer::ConchainConsoleOutputLevelUpdate(IConsole::IResult *pResult, void 
 	}
 }
 
+void CServer::ConchainRconPasswordChange(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData)
+{
+	pfnCallback(pResult, pCallbackUserData);
+	if(pResult->NumArguments() == 1)
+	{
+		CServer *pServer = (CServer *)pUserData;
+		for(int i = 0; i < MAX_CLIENTS; i++)
+		{
+			if(pServer->m_aClients[i].m_State == CServer::CClient::STATE_EMPTY)
+				continue;
+			if(pServer->m_aClients[i].m_Authed == AUTHED_ADMIN)
+			{
+				CMsgPacker Msg(NETMSG_RCON_AUTH_STATUS);
+				Msg.AddInt(0);	//authed
+				Msg.AddInt(0);	//cmdlist
+				pServer->SendMsgEx(&Msg, MSGFLAG_VITAL, i, true);
+				
+				pServer->m_aClients[i].m_Authed = AUTHED_NO;
+				pServer->m_aClients[i].m_LastAuthed = AUTHED_NO;
+				pServer->m_aClients[i].m_AuthTries = 0;
+				pServer->m_aClients[i].m_pRconCmdToSend = 0;
+				
+				pServer->SendRconLine(i, "Logged out by password change.");
+				char aBuf[64];
+				str_format(aBuf, sizeof(aBuf), "ClientID=%d logged out by password change", i);
+				pServer->Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "server", aBuf);
+			}
+		}
+	}
+}
+
+void CServer::ConchainRconModPasswordChange(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData)
+{
+	pfnCallback(pResult, pCallbackUserData);
+	if(pResult->NumArguments() == 1)
+	{
+		CServer *pServer = (CServer *)pUserData;
+		for(int i = 0; i < MAX_CLIENTS; i++)
+		{
+			if(pServer->m_aClients[i].m_State == CServer::CClient::STATE_EMPTY)
+				continue;
+			if(pServer->m_aClients[i].m_Authed == AUTHED_MOD)
+			{
+				CMsgPacker Msg(NETMSG_RCON_AUTH_STATUS);
+				Msg.AddInt(0);	//authed
+				Msg.AddInt(0);	//cmdlist
+				pServer->SendMsgEx(&Msg, MSGFLAG_VITAL, i, true);
+				
+				pServer->m_aClients[i].m_Authed = AUTHED_NO;
+				pServer->m_aClients[i].m_LastAuthed = AUTHED_NO;
+				pServer->m_aClients[i].m_AuthTries = 0;
+				pServer->m_aClients[i].m_pRconCmdToSend = 0;
+				
+				pServer->SendRconLine(i, "Logged out by password change.");
+				char aBuf[64];
+				str_format(aBuf, sizeof(aBuf), "ClientID=%d logged out by password change", i);
+				pServer->Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "server", aBuf);
+			}
+		}
+	}
+}
+
 void CServer::RegisterCommands()
 {
 	m_pConsole = Kernel()->RequestInterface<IConsole>();
@@ -1833,6 +2041,9 @@ void CServer::RegisterCommands()
 	Console()->Chain("sv_max_clients_per_ip", ConchainMaxclientsperipUpdate, this);
 	Console()->Chain("mod_command", ConchainModCommandUpdate, this);
 	Console()->Chain("console_output_level", ConchainConsoleOutputLevelUpdate, this);
+	
+	Console()->Chain("sv_rcon_password", ConchainRconPasswordChange, this);
+	Console()->Chain("sv_rcon_mod_password", ConchainRconModPasswordChange, this);
 
 	// register console commands in sub parts
 	m_ServerBan.InitServerBan(Console(), Storage(), this);
@@ -1867,6 +2078,9 @@ static CServer *CreateServer() { return new CServer(); }
 
 int main(int argc, const char **argv) // ignore_convention
 {
+#if !defined(CONF_PLATFORM_MACOSX)
+	dbg_enable_threaded();
+#endif
 #if defined(CONF_FAMILY_WINDOWS)
 	for(int i = 1; i < argc; i++) // ignore_convention
 	{
@@ -1933,7 +2147,7 @@ int main(int argc, const char **argv) // ignore_convention
 	pEngine->InitLogfile();
 
 #if defined(CONF_FAMILY_UNIX)
-	FifoConsole *fifoConsole = new FifoConsole(pConsole);
+	FifoConsole *fifoConsole = new FifoConsole(pConsole, g_Config.m_SvInputFifo, CFGFLAG_SERVER);
 #endif
 
 	// run the server

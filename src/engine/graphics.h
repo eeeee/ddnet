@@ -100,7 +100,7 @@ public:
 	virtual void QuadsBegin() = 0;
 	virtual void QuadsEnd() = 0;
 	virtual void QuadsSetRotation(float Angle) = 0;
-	virtual void QuadsSetSubset(float TopLeftY, float TopLeftV, float BottomRightU, float BottomRightV) = 0;
+	virtual void QuadsSetSubset(float TopLeftU, float TopLeftV, float BottomRightU, float BottomRightV) = 0;
 	virtual void QuadsSetSubsetFree(float x0, float y0, float x1, float y1, float x2, float y2, float x3, float y3) = 0;
 
 	struct CQuadItem
@@ -142,6 +142,8 @@ public:
 	virtual void InsertSignal(class semaphore *pSemaphore) = 0;
 	virtual bool IsIdle() = 0;
 	virtual void WaitForIdle() = 0;
+
+	virtual void NotifyWindow() = 0;
 };
 
 class IEngineGraphics : public IGraphics
@@ -156,7 +158,6 @@ public:
 
 	virtual int WindowActive() = 0;
 	virtual int WindowOpen() = 0;
-
 };
 
 extern IEngineGraphics *CreateEngineGraphics();

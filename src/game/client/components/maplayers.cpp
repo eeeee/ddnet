@@ -100,7 +100,7 @@ void CMapLayers::EnvelopeEval(float TimeOffset, int Env, float *pChannels, void 
 	}
 	else
 	{
-		if(pThis->m_pClient->m_Snap.m_pGameInfoObj && !(pThis->m_pClient->m_Snap.m_pGameInfoObj->m_GameStateFlags&GAMESTATEFLAG_PAUSED))
+		if(pThis->m_pClient->m_Snap.m_pGameInfoObj) // && !(pThis->m_pClient->m_Snap.m_pGameInfoObj->m_GameStateFlags&GAMESTATEFLAG_PAUSED))
 		{
 			if(pItem->m_Version < 2 || pItem->m_Synchronized)
 			{
@@ -157,7 +157,10 @@ void CMapLayers::OnRender()
 				(int)((x1-x0)*Graphics()->ScreenWidth()), (int)((y1-y0)*Graphics()->ScreenHeight()));
 		}
 
-		MapScreenToGroup(Center.x, Center.y, pGroup, m_pClient->m_pCamera->m_Zoom);
+		if(!g_Config.m_ClZoomBackgroundLayers && !pGroup->m_ParallaxX && !pGroup->m_ParallaxY)
+			MapScreenToGroup(Center.x, Center.y, pGroup, 1.0);
+		else
+			MapScreenToGroup(Center.x, Center.y, pGroup, m_pClient->m_pCamera->m_Zoom);
 
 		for(int l = 0; l < pGroup->m_NumLayers; l++)
 		{
@@ -168,7 +171,7 @@ void CMapLayers::OnRender()
 			bool IsSwitchLayer = false;
 			bool IsTeleLayer = false;
 			bool IsSpeedupLayer = false;
-			//bool IsTuneLayer = false;
+			bool IsTuneLayer = false;
 
 			if(pLayer == (CMapItemLayer*)m_pLayers->GameLayer())
 			{
@@ -188,10 +191,8 @@ void CMapLayers::OnRender()
 			if(pLayer == (CMapItemLayer*)m_pLayers->SpeedupLayer())
 				IsSpeedupLayer = true;
 
-			/*
 			if(pLayer == (CMapItemLayer*)m_pLayers->TuneLayer())
 				IsTuneLayer = true;
-			*/
 
 			// skip rendering if detail layers if not wanted
 			if(pLayer->m_Flags&LAYERFLAG_DETAIL && !g_Config.m_GfxHighDetail && !IsGameLayer)
@@ -232,7 +233,7 @@ void CMapLayers::OnRender()
 				}
 			}
 
-			if((Render && g_Config.m_ClOverlayEntities < 100 && !IsGameLayer && !IsFrontLayer && !IsSwitchLayer && !IsTeleLayer && !IsSpeedupLayer) || (g_Config.m_ClOverlayEntities && IsGameLayer))
+			if((Render && g_Config.m_ClOverlayEntities < 100 && !IsGameLayer && !IsFrontLayer && !IsSwitchLayer && !IsTeleLayer && !IsSpeedupLayer && !IsTuneLayer) || (g_Config.m_ClOverlayEntities && IsGameLayer))
 			{
 				//layershot_begin();
 
@@ -366,7 +367,6 @@ void CMapLayers::OnRender()
 					RenderTools()->RenderSpeedupOverlay(pSpeedupTiles, pTMap->m_Width, pTMap->m_Height, 32.0f, g_Config.m_ClOverlayEntities/100.0f);
 				}
 			}
-			/*
 			else if(g_Config.m_ClOverlayEntities && IsTuneLayer)
 			{
 				CMapItemLayerTilemap *pTMap = (CMapItemLayerTilemap *)pLayer;
@@ -384,10 +384,9 @@ void CMapLayers::OnRender()
 					RenderTools()->RenderTunemap(pTuneTiles, pTMap->m_Width, pTMap->m_Height, 32.0f, Color, TILERENDERFLAG_EXTEND|LAYERRENDERFLAG_OPAQUE);
 					Graphics()->BlendNormal();
 					RenderTools()->RenderTunemap(pTuneTiles, pTMap->m_Width, pTMap->m_Height, 32.0f, Color, TILERENDERFLAG_EXTEND|LAYERRENDERFLAG_TRANSPARENT);
-					RenderTools()->RenderTuneOverlay(pTuneTiles, pTMap->m_Width, pTMap->m_Height, 32.0f, g_Config.m_ClOverlayEntities/100.0f);
+					//RenderTools()->RenderTuneOverlay(pTuneTiles, pTMap->m_Width, pTMap->m_Height, 32.0f, g_Config.m_ClOverlayEntities/100.0f);
 				}
 			}
-			*/
 		}
 		if(!g_Config.m_GfxNoclip)
 			Graphics()->ClipDisable();

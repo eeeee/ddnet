@@ -7,6 +7,8 @@
 void CNetConnection::ResetStats()
 {
 	mem_zero(&m_Stats, sizeof(m_Stats));
+	mem_zero(&m_PeerAddr, sizeof(m_PeerAddr));
+	m_LastUpdateTime = 0;
 }
 
 void CNetConnection::Reset()
@@ -14,13 +16,15 @@ void CNetConnection::Reset()
 	m_Sequence = 0;
 	m_Ack = 0;
 	m_RemoteClosed = 0;
+	m_TimeoutProtected = false;
+	m_TimeoutSituation = false;
 
 	m_State = NET_CONNSTATE_OFFLINE;
 	m_LastSendTime = 0;
 	m_LastRecvTime = 0;
-	m_LastUpdateTime = 0;
+	//m_LastUpdateTime = 0;
 	m_Token = -1;
-	mem_zero(&m_PeerAddr, sizeof(m_PeerAddr));
+	//mem_zero(&m_PeerAddr, sizeof(m_PeerAddr));
 
 	m_Buffer.Init();
 
@@ -241,6 +245,13 @@ int CNetConnection::Feed(CNetPacketConstruct *pPacket, NETADDR *pAddr)
 			{
 				if(CtrlMsg == NET_CTRLMSG_CONNECT)
 				{
+					NETADDR nAddr;
+					mem_copy(&nAddr, pAddr, sizeof(nAddr));
+					nAddr.port = 0;
+					m_PeerAddr.port = 0;
+					if(net_addr_comp(&m_PeerAddr, &nAddr) == 0 && time_get() - m_LastUpdateTime < time_freq() * 3)
+						return 0;
+
 					// send response and init connection
 					Reset();
 					m_State = NET_CONNSTATE_PENDING;
@@ -292,8 +303,16 @@ int CNetConnection::Update()
 {
 	int64 Now = time_get();
 
+	if(State() == NET_CONNSTATE_ERROR && m_TimeoutSituation && (Now-m_LastRecvTime) > time_freq()*g_Config.m_ConnTimeoutProtection)
+	{
+		m_TimeoutSituation = false;
+		SetError("Timeout Protection over");
+	}
+
 	if(State() == NET_CONNSTATE_OFFLINE || State() == NET_CONNSTATE_ERROR)
 		return 0;
+
+	m_TimeoutSituation = false;
 
 	// check for timeout
 	if(State() != NET_CONNSTATE_OFFLINE &&
@@ -302,6 +321,7 @@ int CNetConnection::Update()
 	{
 		m_State = NET_CONNSTATE_ERROR;
 		SetError("Timeout");
+		m_TimeoutSituation = true;
 	}
 
 	// fix resends
@@ -316,6 +336,7 @@ int CNetConnection::Update()
 			char aBuf[512];
 			str_format(aBuf, sizeof(aBuf), "Too weak connection (not acked for %d seconds)", g_Config.m_ConnTimeout);
 			SetError(aBuf);
+			m_TimeoutSituation = true;
 		}
 		else
 		{
@@ -350,4 +371,21 @@ int CNetConnection::Update()
 	}
 
 	return 0;
+}
+
+void CNetConnection::SetTimedOut(const NETADDR *pAddr, int Sequence, int Ack)
+{
+	int64 Now = time_get();
+
+	m_Sequence = Sequence;
+	m_Ack = Ack;
+	m_RemoteClosed = 0;
+
+	m_State = NET_CONNSTATE_ONLINE;
+	m_PeerAddr = *pAddr;
+	mem_zero(m_ErrorString, sizeof(m_ErrorString));
+	m_LastSendTime = Now;
+	m_LastRecvTime = Now;
+	m_LastUpdateTime = Now;
+	m_Buffer.Init();
 }

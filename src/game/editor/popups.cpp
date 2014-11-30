@@ -226,8 +226,8 @@ int CEditor::PopupGroup(CEditor *pEditor, CUIRect View)
 		}
 	}
 
-	// new tile layer
-	View.HSplitBottom(10.0f, &View, &Button);
+	// new quad layer
+	View.HSplitBottom(7.0f, &View, &Button);
 	View.HSplitBottom(12.0f, &View, &Button);
 	static int s_NewQuadLayerButton = 0;
 	if(pEditor->DoButton_Editor(&s_NewQuadLayerButton, "Add quads layer", 0, &Button, 0, "Creates a new quad layer"))
@@ -240,13 +240,27 @@ int CEditor::PopupGroup(CEditor *pEditor, CUIRect View)
 		return 1;
 	}
 
-	// new quad layer
+	// new tile layer
 	View.HSplitBottom(5.0f, &View, &Button);
 	View.HSplitBottom(12.0f, &View, &Button);
 	static int s_NewTileLayerButton = 0;
 	if(pEditor->DoButton_Editor(&s_NewTileLayerButton, "Add tile layer", 0, &Button, 0, "Creates a new tile layer"))
 	{
 		CLayer *l = new CLayerTiles(pEditor->m_Map.m_pGameLayer->m_Width, pEditor->m_Map.m_pGameLayer->m_Height);
+		l->m_pEditor = pEditor;
+		pEditor->m_Map.m_lGroups[pEditor->m_SelectedGroup]->AddLayer(l);
+		pEditor->m_SelectedLayer = pEditor->m_Map.m_lGroups[pEditor->m_SelectedGroup]->m_lLayers.size()-1;
+		pEditor->m_Map.m_lGroups[pEditor->m_SelectedGroup]->m_Collapse = false;
+		return 1;
+	}
+
+	// new sound layer
+	View.HSplitBottom(5.0f, &View, &Button);
+	View.HSplitBottom(12.0f, &View, &Button);
+	static int s_NewSoundLayerButton = 0;
+	if(pEditor->DoButton_Editor(&s_NewSoundLayerButton, "Add sound layer", 0, &Button, 0, "Creates a new sound layer"))
+	{
+		CLayer *l = new CLayerSounds;
 		l->m_pEditor = pEditor;
 		pEditor->m_Map.m_lGroups[pEditor->m_SelectedGroup]->AddLayer(l);
 		pEditor->m_SelectedLayer = pEditor->m_Map.m_lGroups[pEditor->m_SelectedGroup]->m_lLayers.size()-1;
@@ -291,8 +305,8 @@ int CEditor::PopupGroup(CEditor *pEditor, CUIRect View)
 		{"Use Clipping", pEditor->m_Map.m_lGroups[pEditor->m_SelectedGroup]->m_UseClipping, PROPTYPE_BOOL, 0, 1},
 		{"Clip X", pEditor->m_Map.m_lGroups[pEditor->m_SelectedGroup]->m_ClipX, PROPTYPE_INT_SCROLL, -1000000, 1000000},
 		{"Clip Y", pEditor->m_Map.m_lGroups[pEditor->m_SelectedGroup]->m_ClipY, PROPTYPE_INT_SCROLL, -1000000, 1000000},
-		{"Clip W", pEditor->m_Map.m_lGroups[pEditor->m_SelectedGroup]->m_ClipW, PROPTYPE_INT_SCROLL, -1000000, 1000000},
-		{"Clip H", pEditor->m_Map.m_lGroups[pEditor->m_SelectedGroup]->m_ClipH, PROPTYPE_INT_SCROLL, -1000000, 1000000},
+		{"Clip W", pEditor->m_Map.m_lGroups[pEditor->m_SelectedGroup]->m_ClipW, PROPTYPE_INT_SCROLL, 0, 1000000},
+		{"Clip H", pEditor->m_Map.m_lGroups[pEditor->m_SelectedGroup]->m_ClipH, PROPTYPE_INT_SCROLL, 0, 1000000},
 		{0},
 	};
 
@@ -585,6 +599,195 @@ int CEditor::PopupQuad(CEditor *pEditor, CUIRect View)
 		}
 	}
 	if(Prop == PROP_COLOR_ENV_OFFSET) pQuad->m_ColorEnvOffset = NewVal;
+
+	return 0;
+}
+
+int CEditor::PopupSource(CEditor *pEditor, CUIRect View)
+{
+	CSoundSource *pSource = pEditor->GetSelectedSource();
+
+	CUIRect Button;
+
+	// delete button
+	View.HSplitBottom(12.0f, &View, &Button);
+	static int s_DeleteButton = 0;
+	if(pEditor->DoButton_Editor(&s_DeleteButton, "Delete", 0, &Button, 0, "Deletes the current source"))
+	{
+		CLayerSounds *pLayer = (CLayerSounds *)pEditor->GetSelectedLayerType(0, LAYERTYPE_SOUNDS);
+		if(pLayer)
+		{
+			pEditor->m_Map.m_Modified = true;
+			pLayer->m_lSources.remove_index(pEditor->m_SelectedSource);
+			pEditor->m_SelectedSource--;
+		}
+		return 1;
+	}
+
+	// Sound shape button
+	CUIRect ShapeButton;
+	View.HSplitBottom(3.0f, &View, 0x0);
+	View.HSplitBottom(12.0f, &View, &ShapeButton);
+	static int s_ShapeTypeButton = 0;
+
+	static const char *s_aShapeNames[] = {
+		"Rectangle",
+		"Circle"
+	};
+
+	if(pEditor->DoButton_Editor(&s_ShapeTypeButton, s_aShapeNames[pSource->m_Shape.m_Type], 0, &ShapeButton, 0, "Change shape"))
+	{
+		pSource->m_Shape.m_Type = (pSource->m_Shape.m_Type+1)%CSoundShape::NUM_SHAPES;
+
+		// set default values
+		switch(pSource->m_Shape.m_Type)
+		{
+		case CSoundShape::SHAPE_CIRCLE:
+			{
+				pSource->m_Shape.m_Circle.m_Radius = 1000.0f;
+				break;
+			}
+		case CSoundShape::SHAPE_RECTANGLE:
+			{
+				pSource->m_Shape.m_Rectangle.m_Width = f2fx(1000.0f);
+				pSource->m_Shape.m_Rectangle.m_Height = f2fx(800.0f);
+				break;
+			}
+		}
+	}
+	
+
+	enum
+	{
+		PROP_POS_X=0,
+		PROP_POS_Y,
+		PROP_LOOP,
+		PROP_TIME_DELAY,
+		PROP_FALLOFF,
+		PROP_POS_ENV,
+		PROP_POS_ENV_OFFSET,
+		PROP_SOUND_ENV,
+		PROP_SOUND_ENV_OFFSET,
+		NUM_PROPS,
+	};
+
+	CProperty aProps[] = {
+		{"Pos X", pSource->m_Position.x/1000, PROPTYPE_INT_SCROLL, -1000000, 1000000},
+		{"Pos Y", pSource->m_Position.y/1000, PROPTYPE_INT_SCROLL, -1000000, 1000000},
+		{"Loop", pSource->m_Loop, PROPTYPE_BOOL, 0, 1},
+		{"Delay", pSource->m_TimeDelay, PROPTYPE_INT_SCROLL, 0, 1000000},
+		{"Falloff", pSource->m_Falloff, PROPTYPE_INT_SCROLL, 0, 255},
+		{"Pos. Env", pSource->m_PosEnv+1, PROPTYPE_INT_STEP, 0, pEditor->m_Map.m_lEnvelopes.size()+1},
+		{"Pos. TO", pSource->m_PosEnvOffset, PROPTYPE_INT_SCROLL, -1000000, 1000000},
+		{"Sound Env", pSource->m_SoundEnv+1, PROPTYPE_INT_STEP, 0, pEditor->m_Map.m_lEnvelopes.size()+1},
+		{"Sound. TO", pSource->m_PosEnvOffset, PROPTYPE_INT_SCROLL, -1000000, 1000000},
+
+		{0},
+	};
+
+
+
+	static int s_aIds[NUM_PROPS] = {0};
+	int NewVal = 0;
+	int Prop = pEditor->DoProperties(&View, aProps, s_aIds, &NewVal);
+	if(Prop != -1)
+		pEditor->m_Map.m_Modified = true;
+
+	if(Prop == PROP_POS_X) pSource->m_Position.x = NewVal*1000;
+	if(Prop == PROP_POS_Y) pSource->m_Position.y = NewVal*1000;
+	if(Prop == PROP_LOOP) pSource->m_Loop = NewVal;
+	if(Prop == PROP_TIME_DELAY) pSource->m_TimeDelay = NewVal;
+	if(Prop == PROP_FALLOFF) pSource->m_Falloff = NewVal;
+	if(Prop == PROP_POS_ENV)
+	{
+		int Index = clamp(NewVal-1, -1, pEditor->m_Map.m_lEnvelopes.size()-1);
+		int Step = (Index-pSource->m_PosEnv)%2;
+		if(Step != 0)
+		{
+			for(; Index >= -1 && Index < pEditor->m_Map.m_lEnvelopes.size(); Index += Step)
+				if(Index == -1 || pEditor->m_Map.m_lEnvelopes[Index]->m_Channels == 3)
+				{
+					pSource->m_PosEnv = Index;
+					break;
+				}
+		}
+	}
+	if(Prop == PROP_POS_ENV_OFFSET) pSource->m_PosEnvOffset = NewVal;
+	if(Prop == PROP_SOUND_ENV)
+	{
+		int Index = clamp(NewVal-1, -1, pEditor->m_Map.m_lEnvelopes.size()-1);
+		int Step = (Index-pSource->m_SoundEnv)%2;
+		if(Step != 0)
+		{
+			for(; Index >= -1 && Index < pEditor->m_Map.m_lEnvelopes.size(); Index += Step)
+				if(Index == -1 || pEditor->m_Map.m_lEnvelopes[Index]->m_Channels == 1)
+				{
+					pSource->m_SoundEnv = Index;
+					break;
+				}
+		}
+	}
+	if(Prop == PROP_SOUND_ENV_OFFSET) pSource->m_SoundEnvOffset = NewVal;
+
+	// source shape properties
+	switch(pSource->m_Shape.m_Type)
+	{
+	case CSoundShape::SHAPE_CIRCLE:
+		{
+			enum
+			{
+				PROP_CIRCLE_RADIUS=0,
+				NUM_CIRCLE_PROPS,
+			};
+			
+			CProperty aCircleProps[] = {
+				{"Radius", pSource->m_Shape.m_Circle.m_Radius, PROPTYPE_INT_SCROLL, 0, 1000000},
+
+				{0},
+			};
+
+			static int s_aCircleIds[NUM_CIRCLE_PROPS] = {0};
+			
+			NewVal = 0;
+			Prop = pEditor->DoProperties(&View, aCircleProps, s_aCircleIds, &NewVal);
+			if(Prop != -1)
+				pEditor->m_Map.m_Modified = true;
+
+			if(Prop == PROP_CIRCLE_RADIUS) pSource->m_Shape.m_Circle.m_Radius = NewVal;
+
+			break;
+		}
+		
+	case CSoundShape::SHAPE_RECTANGLE:
+		{
+			enum
+			{
+				PROP_RECTANGLE_WIDTH=0,
+				PROP_RECTANGLE_HEIGHT,
+				NUM_RECTANGLE_PROPS,
+			};
+			
+			CProperty aRectangleProps[] = {
+				{"Width", pSource->m_Shape.m_Rectangle.m_Width/1024, PROPTYPE_INT_SCROLL, 0, 1000000},
+				{"Height", pSource->m_Shape.m_Rectangle.m_Height/1024, PROPTYPE_INT_SCROLL, 0, 1000000},
+
+				{0},
+			};
+
+			static int s_aRectangleIds[NUM_RECTANGLE_PROPS] = {0};
+			
+			NewVal = 0;
+			Prop = pEditor->DoProperties(&View, aRectangleProps, s_aRectangleIds, &NewVal);
+			if(Prop != -1)
+				pEditor->m_Map.m_Modified = true;
+
+			if(Prop == PROP_RECTANGLE_WIDTH) pSource->m_Shape.m_Rectangle.m_Width = NewVal*1024;
+			if(Prop == PROP_RECTANGLE_HEIGHT) pSource->m_Shape.m_Rectangle.m_Height = NewVal*1024;
+
+			break;
+		}
+	}
+	
 
 	return 0;
 }
@@ -977,6 +1180,100 @@ int CEditor::PopupSelectImageResult()
 	g_SelectImageSelected = -100;
 	return g_SelectImageCurrent;
 }
+
+static int g_SelectSoundSelected = -100;
+static int g_SelectSoundCurrent = -100;
+
+int CEditor::PopupSelectSound(CEditor *pEditor, CUIRect View)
+{
+	CUIRect ButtonBar, SoundView;
+	View.VSplitLeft(80.0f, &ButtonBar, &View);
+	View.Margin(10.0f, &SoundView);
+
+
+	static int s_ScrollBar = 0;
+	static float s_ScrollValue = 0;
+	float SoundsHeight = pEditor->m_Map.m_lSounds.size() * 14;
+	float ScrollDifference = SoundsHeight - ButtonBar.h;
+
+	if(pEditor->m_Map.m_lSounds.size() > 20) // Do we need a scrollbar?
+	{
+		CUIRect Scroll;
+		ButtonBar.VSplitRight(15.0f, &ButtonBar, &Scroll);
+		ButtonBar.VSplitRight(3.0f, &ButtonBar, 0);	// extra spacing
+		Scroll.HMargin(5.0f, &Scroll);
+		s_ScrollValue = pEditor->UiDoScrollbarV(&s_ScrollBar, &Scroll, s_ScrollValue);
+
+		if(pEditor->UI()->MouseInside(&Scroll) || pEditor->UI()->MouseInside(&ButtonBar))
+		{
+			int ScrollNum = (int)((SoundsHeight-ButtonBar.h)/14.0f)+1;
+			if(ScrollNum > 0)
+			{
+				if(pEditor->Input()->KeyPresses(KEY_MOUSE_WHEEL_UP))
+					s_ScrollValue = clamp(s_ScrollValue - 1.0f/ScrollNum, 0.0f, 1.0f);
+				if(pEditor->Input()->KeyPresses(KEY_MOUSE_WHEEL_DOWN))
+					s_ScrollValue = clamp(s_ScrollValue + 1.0f/ScrollNum, 0.0f, 1.0f);
+			}
+			else
+				ScrollNum = 0;
+		}
+	}
+
+	float SoundStartAt = ScrollDifference * s_ScrollValue;
+	if(SoundStartAt < 0.0f)
+		SoundStartAt = 0.0f;
+
+	float SoundStopAt = SoundsHeight - ScrollDifference * (1 - s_ScrollValue);
+	float SoundCur = 0.0f;
+	for(int i = -1; i < pEditor->m_Map.m_lSounds.size(); i++)
+	{
+		if(SoundCur > SoundStopAt)
+			break;
+		if(SoundCur < SoundStartAt)
+		{
+			SoundCur += 14.0f;
+			continue;
+		}
+		SoundCur += 14.0f;
+
+		CUIRect Button;
+		ButtonBar.HSplitTop(14.0f, &Button, &ButtonBar);
+
+		//if(pEditor->UI()->MouseInside(&Button))
+		//	ShowSound = i;
+
+		if(i == -1)
+		{
+			if(pEditor->DoButton_MenuItem(&pEditor->m_Map.m_lSounds[i], "None", i==g_SelectSoundCurrent, &Button))
+				g_SelectSoundSelected = -1;
+		}
+		else
+		{
+			if(pEditor->DoButton_MenuItem(&pEditor->m_Map.m_lSounds[i], pEditor->m_Map.m_lSounds[i]->m_aName, i==g_SelectSoundCurrent, &Button))
+				g_SelectSoundSelected = i;
+		}
+	}
+
+	return 0;
+}
+
+void CEditor::PopupSelectSoundInvoke(int Current, float x, float y)
+{
+	static int s_SelectSoundPopupId = 0;
+	g_SelectSoundSelected = -100;
+	g_SelectSoundCurrent = Current;
+	UiInvokePopupMenu(&s_SelectSoundPopupId, 0, x, y, 400, 300, PopupSelectSound);
+}
+
+int CEditor::PopupSelectSoundResult()
+{
+	if(g_SelectSoundSelected == -100)
+		return -100;
+
+	g_SelectSoundCurrent = g_SelectSoundSelected;
+	g_SelectSoundSelected = -100;
+	return g_SelectSoundCurrent;
+} 
 
 static int s_GametileOpSelected = -1;
 
