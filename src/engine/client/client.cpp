@@ -7,6 +7,8 @@
 #include <string.h>
 #include <climits>
 
+#include <emscripten.h>
+
 #include <base/math.h>
 #include <base/vmath.h>
 #include <base/system.h>
@@ -2335,12 +2337,6 @@ void CClient::InitInterfaces()
 		io_read(newsFile, m_aNews, NEWS_SIZE);
 		io_close(newsFile);
 	}
-}
-
-extern "C"
-{
-	void emscripten_set_main_loop_arg(void (*func)(void*), void *arg, int fps, int simulate_infinite_loop);
-	void emscripten_cancel_main_loop();
 }
 
 void mainLoop(CClient* cl) {
