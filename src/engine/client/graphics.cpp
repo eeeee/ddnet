@@ -323,6 +323,11 @@ int CGraphics_OpenGL::LoadTextureRawSub(int TextureID, int x, int y, int Width, 
 	return 0;
 }
 
+int isPowerOfTwo(unsigned int x)
+{
+  return ((x != 0) && ((x & (~x + 1)) == x));
+}
+
 int CGraphics_OpenGL::LoadTextureRaw(int Width, int Height, int Format, const void *pData, int StoreFormat, int Flags)
 {
 	int Mipmap = 1;
@@ -393,18 +398,28 @@ int CGraphics_OpenGL::LoadTextureRaw(int Width, int Height, int Format, const vo
 	glGenTextures(1, &m_aTextures[Tex].m_Tex);
 	glBindTexture(GL_TEXTURE_2D, m_aTextures[Tex].m_Tex);
 
-	/*if(Flags&TEXLOAD_NOMIPMAPS)
-	{*/
+	if (!isPowerOfTwo(Width) || !isPowerOfTwo(Height)) {
+		WrapClamp();
+	}
+
+	if(Flags&TEXLOAD_NOMIPMAPS)
+	{
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexImage2D(GL_TEXTURE_2D, 0, StoreOglformat, Width, Height, 0, Oglformat, GL_UNSIGNED_BYTE, pData);
-	/*}
+	}
 	else
 	{
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
-		gluBuild2DMipmaps(GL_TEXTURE_2D, StoreOglformat, Width, Height, Oglformat, GL_UNSIGNED_BYTE, pTexData);
-	}*/
+		glTexImage2D(GL_TEXTURE_2D, 0, StoreOglformat, Width, Height, 0, Oglformat, GL_UNSIGNED_BYTE, pData);
+		if (isPowerOfTwo(Width) && isPowerOfTwo(Height)) {
+			glGenerateMipmap(GL_TEXTURE_2D);
+		} else {
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		}
+	}
 
 	// calculate memory usage
 	{
