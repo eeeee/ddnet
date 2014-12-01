@@ -19,7 +19,7 @@ ln -fs DDNet ddnet.bc || die ""
 pushd data > /dev/null || die "wheres data"
 
 PRELOAD=`ls *.png | sed "s/^/--preload-file /g"`
-emcc ../ddnet.bc -o ../ddnet.html \
+emcc ../ddnet.bc ../libfreetype.opt.bc -o ../ddnet.html \
 	-O3 --closure 1 \
 	-s AGGRESSIVE_VARIABLE_ELIMINATION=1 \
 	-s POINTER_MASKING=1 \
@@ -40,7 +40,8 @@ emcc ../ddnet.bc -o ../ddnet.html \
 	--preload-file skins/default.png \
 	--preload-file skins/limekitty.png \
 	--preload-file skins/x_ninja.png \
- 	--preload-file demo.demo \
+	--preload-file demo.demo \
+	--preload-file fonts/DejaVuSans.ttf \
 	$PRELOAD \
 	|| die "linking error"
 popd > /dev/null
