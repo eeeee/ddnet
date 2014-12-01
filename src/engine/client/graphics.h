@@ -74,6 +74,9 @@ public:
 	virtual void ClipEnable(int x, int y, int w, int h);
 	virtual void ClipDisable();
 
+	virtual void ModeCombine();
+	virtual void ModeModulate();
+
 	virtual void BlendNone();
 	virtual void BlendNormal();
 	virtual void BlendAdditive();
