@@ -8,7 +8,16 @@
 #include <string.h>
 #include <climits>
 
-#include <emscripten.h>
+#ifdef EMSCRIPTEN
+	#include <emscripten.h>
+#else
+typedef void (*em_arg_callback_func)(void*);
+void emscripten_set_main_loop_arg(em_arg_callback_func func, void *arg, int fps, int simulate_infinite_loop) {
+  func(arg);
+}
+void emscripten_cancel_main_loop(void) {
+}
+#endif
 
 #include <base/math.h>
 #include <base/vmath.h>
@@ -2472,9 +2481,11 @@ void CClient::Run()
 
 	// init graphics
 	{
+		/*
 		if(g_Config.m_GfxThreadedOld)
 			m_pGraphics = CreateEngineGraphicsThreaded();
 		else
+		*/
 			m_pGraphics = CreateEngineGraphics();
 
 		bool RegisterFail = false;

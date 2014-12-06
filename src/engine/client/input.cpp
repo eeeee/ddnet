@@ -137,7 +137,11 @@ int CInput::Update()
 
 	{
 		int i;
+#ifdef EMSCRIPTEN
 		Uint8 *pState = SDL_GetKeyboardState(&i);
+#else
+		Uint8 *pState = SDL_GetKeyState(&i);
+#endif
 		if(i >= KEY_LAST)
 			i = KEY_LAST-1;
 		mem_copy(m_aInputState[m_InputCurrent], pState, i);

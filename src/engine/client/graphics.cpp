@@ -451,9 +451,14 @@ int CGraphics_OpenGL::LoadTextureRaw(int Width, int Height, int Format, const vo
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
 		glTexImage2D(GL_TEXTURE_2D, 0, StoreOglformat, Width, Height, 0, Oglformat, GL_UNSIGNED_BYTE, pData);
-		if (isPowerOfTwo(Width) && isPowerOfTwo(Height)) {
+#ifdef EMSCRIPTEN
+		if (isPowerOfTwo(Width) && isPowerOfTwo(Height))
+		{
 			glGenerateMipmap(GL_TEXTURE_2D);
-		} else {
+		}
+		else
+#endif
+		{
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		}
