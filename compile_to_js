@@ -22,14 +22,12 @@ PRELOAD=`ls *.png | sed "s/^/--preload-file /g"`
 emcc ../ddnet.bc ../libfreetype.opt.bc -o ../ddnet.html \
 	-O3 --closure 1 \
 	-s AGGRESSIVE_VARIABLE_ELIMINATION=1 \
-	-s POINTER_MASKING=1 \
 	-s GL_FFP_ONLY=1 \
 	-s NO_EXIT_RUNTIME=1 \
 	-s CORRECT_ROUNDINGS=0 \
 	-s DOUBLE_MODE=0 \
 	-s FORCE_ALIGNED_MEMORY=1 \
 	-s PRECISE_I64_MATH=0 \
-	-s PRECISE_I32_MUL=0 \
 	-s TOTAL_MEMORY=33554432 \
 	-s ASSERTIONS=0 \
 	-s LEGACY_GL_EMULATION=1 \
