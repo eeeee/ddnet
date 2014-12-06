@@ -771,6 +771,7 @@ int CDemoPlayer::Update(bool RealTime)
 {
 	int64 Now = time_get();
 	int64 Deltatime = Now-m_Info.m_LastUpdate;
+	Deltatime = min(Deltatime, time_freq() * 3 / SERVER_TICK_SPEED);
 	m_Info.m_LastUpdate = Now;
 
 	if(!IsPlaying())
