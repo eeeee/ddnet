@@ -41,6 +41,9 @@
 
 #include "graphics.h"
 
+extern "C" {
+  extern void loadTexture(const char* path, GLuint texture);
+}
 
 #if defined(CONF_PLATFORM_MACOSX)
 
@@ -498,6 +501,14 @@ int CGraphics_OpenGL::LoadTexture(const char *pFilename, int StorageType, int St
 
 	if(l < 3)
 		return -1;
+
+	int Tex = m_FirstFreeTexture;
+	m_FirstFreeTexture = m_aTextures[Tex].m_Next;
+	m_aTextures[Tex].m_Next = -1;
+	glGenTextures(1, &m_aTextures[Tex].m_Tex);
+	loadTexture(pFilename, m_aTextures[Tex].m_Tex);
+	return Tex;
+
 	if(LoadPNG(&Img, pFilename, StorageType))
 	{
 		if (StoreFormat == CImageInfo::FORMAT_AUTO)

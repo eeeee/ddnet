@@ -18,8 +18,8 @@ PATH=/tmp/gcc_mocks:$PATH emmake ./bam client_release -v || die "compilation err
 ln -fs DDNet ddnet.bc || die ""
 pushd data > /dev/null || die "wheres data"
 
-PRELOAD=`ls *.png | sed "s/^/--preload-file /g"`
 emcc ../ddnet.bc ../libfreetype.opt.bc -o ../ddnet.html \
+	--js-library ../tw.js \
 	-O3 --closure 1 \
 	-s AGGRESSIVE_VARIABLE_ELIMINATION=1 \
 	-s GL_FFP_ONLY=1 \
@@ -31,16 +31,12 @@ emcc ../ddnet.bc ../libfreetype.opt.bc -o ../ddnet.html \
 	-s TOTAL_MEMORY=33554432 \
 	-s ASSERTIONS=0 \
 	-s LEGACY_GL_EMULATION=1 \
-	--preload-file mapres/grass_main.png \
-	--preload-file mapres/generic_unhookable.png \
-	--preload-file mapres/stars.png \
 	--preload-file skins/bluekitty.png \
 	--preload-file skins/default.png \
 	--preload-file skins/limekitty.png \
 	--preload-file skins/x_ninja.png \
 	--preload-file demo.demo \
 	--preload-file fonts/DejaVuSans.ttf \
-	$PRELOAD \
 	|| die "linking error"
 popd > /dev/null
 
