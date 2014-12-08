@@ -57,6 +57,17 @@ int CSkins::SkinScan(const char *pName, int IsDir, int DirType, void *pUser)
 		pSelf->Console()->Print(IConsole::OUTPUT_LEVEL_ADDINFO, "game", aBuf);
 		return 0;
 	}
+}
+
+int CSkins::LoadSkin(const char *pName, CSkins *pSelf, int width, int height, void *data)
+{
+	int l = str_length(pName);
+	char aBuf[512];
+	CImageInfo Info;
+	Info.m_Width = width;
+	Info.m_Height = height;
+	Info.m_pData = data;
+	Info.m_Format = CImageInfo::FORMAT_RGBA;
 
 	CSkin Skin;
 	Skin.m_OrgTexture = pSelf->Graphics()->LoadTextureRaw(Info.m_Width, Info.m_Height, Info.m_Format, Info.m_pData, Info.m_Format, 0);
@@ -139,7 +150,7 @@ int CSkins::SkinScan(const char *pName, int IsDir, int DirType, void *pUser)
 		str_format(aBuf, sizeof(aBuf), "load skin %s", Skin.m_aName);
 		pSelf->Console()->Print(IConsole::OUTPUT_LEVEL_ADDINFO, "game", aBuf);
 	}
-	pSelf->m_aSkins.add(Skin);
+	pSelf->m_aSkins[pSelf->Find(Skin.m_aName)] = Skin;
 
 	return 0;
 }
@@ -149,7 +160,8 @@ void CSkins::OnInit()
 {
 	// load skins
 	m_aSkins.clear();
-	Storage()->ListDirectory(IStorage::TYPE_ALL, "skins", SkinScan, this);
+//     Storage()->ListDirectory(IStorage::TYPE_ALL, "skins", SkinScan, this);
+	Find("default");
 	if(!m_aSkins.size())
 	{
 		Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "gameclient", "failed to load skins. folder='skins/'");
@@ -174,12 +186,39 @@ const CSkins::CSkin *CSkins::Get(int Index)
 
 int CSkins::Find(const char *pName)
 {
+	int defaultSkin = -1;
 	for(int i = 0; i < m_aSkins.size(); i++)
 	{
+		if(str_comp(m_aSkins[i].m_aName, "default") == 0)
+			defaultSkin = i;
 		if(str_comp(m_aSkins[i].m_aName, pName) == 0)
 			return i;
 	}
-	return -1;
+
+	CSkin DummySkin;
+	if (defaultSkin == -1) {
+		DummySkin.m_OrgTexture = -1;
+		DummySkin.m_ColorTexture = -1;
+		DummySkin.m_BloodColor = vec3(1.0f, 1.0f, 1.0f);
+	} else {
+		DummySkin = m_aSkins[defaultSkin];
+	}
+	str_copy(DummySkin.m_aName, pName, sizeof(DummySkin.m_aName));
+	m_aSkins.add(DummySkin);
+
+	CSkins *pSelf = this;
+	char aBuf[512];
+	str_format(aBuf, sizeof(aBuf), "skins/%s.png", pName);
+	CImageInfo Info;
+	if(!pSelf->Graphics()->LoadPNG(&Info, aBuf, IStorage::TYPE_ALL))
+	{
+		str_format(aBuf, sizeof(aBuf), "failed to load skin from %s", pName);
+		pSelf->Console()->Print(IConsole::OUTPUT_LEVEL_ADDINFO, "game", aBuf);
+		return 0;
+	}
+	str_format(aBuf, sizeof(aBuf), "%s.png", pName);
+	LoadSkin(aBuf, pSelf, Info.m_Width, Info.m_Height, Info.m_pData);
+	return Num() - 1;
 }
 
 vec3 CSkins::GetColorV3(int v)

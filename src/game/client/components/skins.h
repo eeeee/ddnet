@@ -32,5 +32,6 @@ private:
 	sorted_array<CSkin> m_aSkins;
 
 	static int SkinScan(const char *pName, int IsDir, int DirType, void *pUser);
+	static int LoadSkin(const char *pName, CSkins *pSelf, int width, int height, void *data);
 };
 #endif
