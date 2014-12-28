@@ -247,6 +247,7 @@ function build(settings)
 	wavpack = Compile(settings, Collect("src/engine/external/wavpack/*.c"))
 	pnglite = Compile(settings, Collect("src/engine/external/pnglite/*.c"))
 	jsonparser = Compile(settings, Collect("src/engine/external/json-parser/*.cpp"))
+	libwebsockets = Compile(settings, Collect("src/engine/external/libwebsockets/*.c"))
 
 	-- build game components
 	engine_settings = settings:Copy()
@@ -362,7 +363,7 @@ function build(settings)
 		client_link_other, client_osxlaunch, jsonparser)
 
 	server_exe = Link(server_settings, "DDNet-Server", engine, server,
-		game_shared, game_server, zlib, server_link_other)
+		game_shared, game_server, zlib, server_link_other, libwebsockets)
 
 	serverlaunch = {}
 	if platform == "macosx" then

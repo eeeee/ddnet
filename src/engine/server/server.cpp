@@ -1576,16 +1576,17 @@ int CServer::Run()
 
 	// start server
 	NETADDR BindAddr;
-	if(g_Config.m_Bindaddr[0] && net_host_lookup(g_Config.m_Bindaddr, &BindAddr, NETTYPE_ALL) == 0)
+	int nettype = NETTYPE_ALL | NETTYPE_WEBSOCKET_IPV4;
+	if(g_Config.m_Bindaddr[0] && net_host_lookup(g_Config.m_Bindaddr, &BindAddr, nettype) == 0)
 	{
 		// sweet!
-		BindAddr.type = NETTYPE_ALL;
+		BindAddr.type = nettype;
 		BindAddr.port = g_Config.m_SvPort;
 	}
 	else
 	{
 		mem_zero(&BindAddr, sizeof(BindAddr));
-		BindAddr.type = NETTYPE_ALL;
+		BindAddr.type = nettype;
 		BindAddr.port = g_Config.m_SvPort;
 	}
 

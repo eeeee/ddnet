@@ -474,6 +474,7 @@ typedef struct
 	int type;
 	int ipv4sock;
 	int ipv6sock;
+	int web_ipv4sock;
 } NETSOCKET;
 
 enum
@@ -484,6 +485,7 @@ enum
 	NETTYPE_IPV4 = 1,
 	NETTYPE_IPV6 = 2,
 	NETTYPE_LINK_BROADCAST = 4,
+	NETTYPE_WEBSOCKET_IPV4 = 8,
 	NETTYPE_ALL = NETTYPE_IPV4|NETTYPE_IPV6
 };
 
