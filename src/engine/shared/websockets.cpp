@@ -31,6 +31,7 @@ struct per_session_data {
 struct context_data {
 	per_session_data* port_map[WS_CLIENTS];
 	TRecvBuffer recv_buffer;
+	int last_used_port;
 };
 
 void netaddr_to_sockaddr_in(const NETADDR *src, struct sockaddr_in *dest)
@@ -65,8 +66,9 @@ websocket_callback(struct libwebsocket_context *context,
 		case LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH: {
 			int port = -1;
 			for (int i = 0; i < WS_CLIENTS; i++) {
-				if (ctx_data->port_map[i] == NULL) {
-					port = i;
+				int j = (ctx_data->last_used_port + i + 1) % WS_CLIENTS;
+				if (ctx_data->port_map[j] == NULL) {
+					port = j;
 					break;
 				}
 			}
@@ -79,15 +81,16 @@ websocket_callback(struct libwebsocket_context *context,
 		case LWS_CALLBACK_ESTABLISHED: {
 			int port = -1;
 			for (int i = 0; i < WS_CLIENTS; i++) {
-				if (ctx_data->port_map[i] == NULL) {
-					port = i;
+				int j = (ctx_data->last_used_port + i + 1) % WS_CLIENTS;
+				if (ctx_data->port_map[j] == NULL) {
+					port = j;
 					break;
 				}
 			}
 			if (port == -1) {
 				return -1;
 			}
-
+			ctx_data->last_used_port = port;
 			pss->wsi = wsi;
 			int fd = libwebsocket_get_socket_fd(wsi);
 			char name[1];
@@ -199,6 +202,7 @@ int websocket_create(const char* addr, int port) {
 	}
 	memset(ctx_data->port_map, NULL, sizeof(ctx_data->port_map));
 	ctx_data->recv_buffer.Init();
+	ctx_data->last_used_port = 0;
 	return first_free;
 }
 
