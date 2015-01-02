@@ -333,7 +333,7 @@ function build(settings)
 	client = Compile(client_settings, Collect("src/engine/client/*.cpp"))
 	server = Compile(server_settings, Collect("src/engine/server/*.cpp"))
 
-	versionserver = Compile(settings, Collect("src/versionsrv/*.cpp"))
+	versionserver = Compile(settings, Collect("src/versionsrv/*.cpp", "src/engine/server/websockets.cpp"))
 	masterserver = Compile(settings, Collect("src/mastersrv/*.cpp"))
 	twping = Compile(settings, Collect("src/twping/*.cpp"))
 	game_shared = Compile(settings, Collect("src/game/*.cpp"), nethash, network_source)
@@ -371,7 +371,7 @@ function build(settings)
 	end
 
 	versionserver_exe = Link(server_settings, "versionsrv", versionserver,
-		engine, zlib)
+		engine, zlib, libwebsockets)
 
 	masterserver_exe = Link(server_settings, "mastersrv", masterserver,
 		engine, zlib)

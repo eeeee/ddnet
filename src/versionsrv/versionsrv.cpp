@@ -166,7 +166,7 @@ int main(int argc, char **argv) // ignore_convention
 	net_init();
 
 	mem_zero(&BindAddr, sizeof(BindAddr));
-	BindAddr.type = NETTYPE_ALL;
+	BindAddr.type = NETTYPE_ALL | NETTYPE_WEBSOCKET_IPV4;
 	BindAddr.port = VERSIONSRV_PORT;
 	if(!g_NetOp.Open(BindAddr, 0))
 	{

@@ -239,10 +239,13 @@ int websocket_recv(int socket, unsigned char* data, size_t maxsize, struct socka
 }
 
 int websocket_send(int socket, const unsigned char* data, size_t size, int port) {
-
 	libwebsocket_context* context = contexts[socket];
+	if (context == NULL)
+		return -1;
 	context_data* ctx_data = (context_data*)libwebsocket_context_user(context);
 	struct per_session_data *pss = ctx_data->port_map[port];
+	if (pss == NULL)
+		return -1;
 	websocket_chunk* chunk = (websocket_chunk*)pss->send_buffer.Allocate(size + sizeof(websocket_chunk) + LWS_SEND_BUFFER_PRE_PADDING + LWS_SEND_BUFFER_POST_PADDING);
 	if (chunk == NULL)
 		return -1;
