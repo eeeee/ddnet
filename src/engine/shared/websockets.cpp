@@ -1,6 +1,7 @@
 /* (c) eeeee */
 
 #include <string.h>
+#include <stdlib.h>
 
 #include "engine/external/libwebsockets/libwebsockets.h"
 #include "base/system.h"
