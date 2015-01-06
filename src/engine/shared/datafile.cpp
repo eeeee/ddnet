@@ -275,6 +275,10 @@ int CDataFileReader::GetUncompressedDataSize(int Index)
 		return GetDataSize(Index);
 }
 
+void CDataFileReader::SetData(int Index, char* Data) {
+	m_pDataFile->m_ppDataPtrs[Index] = Data;
+}
+
 void *CDataFileReader::GetDataImpl(int Index, int Swap)
 {
 	if(!m_pDataFile) { return 0; }

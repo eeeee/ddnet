@@ -3,6 +3,7 @@
 #include <math.h>
 
 #include <base/math.h>
+#include <base/system.h>
 
 #include <engine/shared/config.h>
 #include <engine/graphics.h>
@@ -347,12 +348,23 @@ void CRenderTools::RenderTilemapGenerateSkip(class CLayers *pLayers)
 		{
 			CMapItemLayer *pLayer = pLayers->GetLayer(pGroup->m_StartLayer+l);
 
+			bool IsGameLayer = false;
+
+			if(pLayer == (CMapItemLayer*)pLayers->GameLayer())
+				IsGameLayer = true;
+
 			if(pLayer->m_Type == LAYERTYPE_TILES)
 			{
 				CMapItemLayerTilemap *pTmap = (CMapItemLayerTilemap *)pLayer;
 				CTile *pTiles = (CTile *)pLayers->Map()->GetData(pTmap->m_Data);
+				int skipped = 0;
+				int index[pTmap->m_Height];
 				for(int y = 0; y < pTmap->m_Height; y++)
 				{
+					index[y] = y*pTmap->m_Width-skipped + sizeof(index)/sizeof(CTile);
+					if (!IsGameLayer) {
+						pTiles[y*pTmap->m_Width-skipped] = pTiles[y*pTmap->m_Width];
+					}
 					for(int x = 1; x < pTmap->m_Width;)
 					{
 						int sx;
@@ -361,10 +373,27 @@ void CRenderTools::RenderTilemapGenerateSkip(class CLayers *pLayers)
 							if(pTiles[y*pTmap->m_Width+x+sx].m_Index)
 								break;
 						}
-
-						pTiles[y*pTmap->m_Width+x].m_Skip = sx-1;
+						if (!IsGameLayer) {
+							if (skipped > 0) {
+								pTiles[y*pTmap->m_Width+x-skipped] = pTiles[y*pTmap->m_Width+x];
+							}
+							pTiles[y*pTmap->m_Width+x-skipped].m_Skip = sx-1;
+							skipped += sx-1;
+						} else {
+							pTiles[y*pTmap->m_Width+x].m_Skip = sx-1;
+						}
 						x += sx;
 					}
+				}
+				if (!IsGameLayer) {
+					int origSize = pTmap->m_Height * pTmap->m_Width * sizeof(CTile);
+					int newSize = origSize - skipped * sizeof(CTile) + sizeof(index);
+					char *pSkipped = (char*)mem_alloc(newSize, 1);
+					mem_copy(pSkipped, (char*)index, sizeof(index));
+					mem_copy(pSkipped + sizeof(index), pTiles, newSize - sizeof(index));
+					mem_free(pTiles);
+					pLayers->Map()->SetData(pTmap->m_Data, pSkipped);
+					dbg_msg("h4x", "compacted from %d to %d", origSize, newSize);
 				}
 			}
 		}

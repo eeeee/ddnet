@@ -213,11 +213,29 @@ void CRenderTools::RenderTilemap(CTile *pTiles, int w, int h, float Scale, vec4 
 	float Frac = (1.25f/TexSize) * (1/FinalTilesetScale);
 	float Nudge = (0.5f/TexSize) * (1/FinalTilesetScale);
 
-	for(int y = StartY; y < EndY; y++)
+	for(int y = StartY; y < EndY; y++) {
+		int my = y;
+
+		if(RenderFlags&TILERENDERFLAG_EXTEND)
+		{
+			if(my<0)
+				my = 0;
+			if(my>=h)
+				my = h-1;
+		}
+		else
+		{
+			if(my<0)
+				continue; // my = 0;
+			if(my>=h)
+				continue; // my = h-1;
+		}
+
+		int c = ((int*)pTiles)[my];
+		int realX = 0;
 		for(int x = StartX; x < EndX; x++)
 		{
 			int mx = x;
-			int my = y;
 
 			if(RenderFlags&TILERENDERFLAG_EXTEND)
 			{
@@ -225,10 +243,6 @@ void CRenderTools::RenderTilemap(CTile *pTiles, int w, int h, float Scale, vec4 
 					mx = 0;
 				if(mx>=w)
 					mx = w-1;
-				if(my<0)
-					my = 0;
-				if(my>=h)
-					my = h-1;
 			}
 			else
 			{
@@ -236,13 +250,18 @@ void CRenderTools::RenderTilemap(CTile *pTiles, int w, int h, float Scale, vec4 
 					continue; // mx = 0;
 				if(mx>=w)
 					continue; // mx = w-1;
-				if(my<0)
-					continue; // my = 0;
-				if(my>=h)
-					continue; // my = h-1;
 			}
 
-			int c = mx + my*w;
+			while (realX < mx) {
+				realX += pTiles[c].m_Skip + 1;
+				c++;
+				if (realX >= EndX) {
+					break;
+				}
+			}
+			if (realX != mx) {
+				continue;
+			}
 
 			unsigned char Index = pTiles[c].m_Index;
 			if(Index)
@@ -315,9 +334,8 @@ void CRenderTools::RenderTilemap(CTile *pTiles, int w, int h, float Scale, vec4 
 					Graphics()->QuadsDrawTL(&QuadItem, 1);
 				}
 			}
-			x += pTiles[c].m_Skip;
 		}
-
+	}
 	Graphics()->QuadsEnd();
 	Graphics()->MapScreen(ScreenX0, ScreenY0, ScreenX1, ScreenY1);
 }
