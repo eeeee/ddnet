@@ -7,6 +7,7 @@
 #include "base/system.h"
 #include "ringbuffer.h"
 #include <netinet/in.h>
+#include <arpa/inet.h>
 
 extern "C" {
 
@@ -94,17 +95,16 @@ websocket_callback(struct libwebsocket_context *context,
 			ctx_data->last_used_port = port;
 			pss->wsi = wsi;
 			int fd = libwebsocket_get_socket_fd(wsi);
-			char name[1];
-			char rip[NETADDR_MAXSTRSIZE];
-			libwebsockets_get_peer_addresses(context, wsi, fd, name, sizeof(name), rip, sizeof(rip));
-			NETADDR addr;
-			net_addr_from_str(&addr, rip);
-			addr.port = port;
-			netaddr_to_sockaddr_in(&addr, &pss->addr);
+			socklen_t addr_size = sizeof(pss->addr);
+			getpeername(fd, (struct sockaddr *)&pss->addr, &addr_size);
+			int orig_port = ntohs(pss->addr.sin_port);
+			pss->addr.sin_port = htons(port);
 			pss->send_buffer.Init();
 			pss->port = port;
 			ctx_data->port_map[port] = pss;
-			dbg_msg("websockets", "connection established with %s , assigned fake port %d", rip, port);
+			char addr_str[NETADDR_MAXSTRSIZE];
+			inet_ntop(AF_INET, &pss->addr.sin_addr, addr_str, sizeof(addr_str));
+			dbg_msg("websockets", "connection established with %s:%d , assigned fake port %d", addr_str, orig_port, port);
 		}
 		break;
 
