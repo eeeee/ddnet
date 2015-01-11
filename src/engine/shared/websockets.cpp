@@ -36,18 +36,17 @@ struct context_data {
 	int last_used_port;
 };
 
-void netaddr_to_sockaddr_in(const NETADDR *src, struct sockaddr_in *dest)
-{
-	mem_zero(dest, sizeof(struct sockaddr_in));
-	if(src->type != NETTYPE_IPV4 && src->type != NETTYPE_WEBSOCKET_IPV4)
-	{
-		dbg_msg("system", "couldn't convert NETADDR of type %d to ipv4", src->type);
-		return;
+static int
+recveive_chunk(context_data *ctx_data, struct per_session_data *pss, void *in, size_t len) {
+	websocket_chunk* chunk = (websocket_chunk*)ctx_data->recv_buffer.Allocate(len + sizeof(websocket_chunk));
+	if (chunk == 0) {
+		return 1;
 	}
-
-	dest->sin_family = AF_INET;
-	dest->sin_port = htons(src->port);
-	mem_copy(&dest->sin_addr.s_addr, src->ip, 4);
+	chunk->size = len;
+	chunk->read = 0;
+	memcpy(&chunk->addr, &pss->addr, sizeof(sockaddr_in));
+	memcpy(&chunk->data[0], in, len);
+	return 0;
 }
 
 static int
@@ -56,12 +55,8 @@ websocket_callback(struct libwebsocket_context *context,
 	enum libwebsocket_callback_reasons reason, void *user,
 	void *in, size_t len)
 {
-	websocket_chunk* chunk;
 	struct per_session_data *pss = (struct per_session_data *)user;
-
-	context_data* ctx_data = (context_data*)libwebsocket_context_user(context);
-
-	int n;
+	context_data *ctx_data = (context_data*)libwebsocket_context_user(context);
 
 	switch (reason) {
 
@@ -110,19 +105,21 @@ websocket_callback(struct libwebsocket_context *context,
 
 		case LWS_CALLBACK_CLOSED: {
 			dbg_msg("websockets", "connection with fake port %d closed", pss->port);
+			unsigned char close_packet[] = {0x10, 0x0e, 0x00, 0x04};
+			recveive_chunk(ctx_data, pss, &close_packet, sizeof(close_packet));
 			pss->wsi = 0;
 			ctx_data->port_map[pss->port] = NULL;
 		}
 		break;
 
 		case LWS_CALLBACK_SERVER_WRITEABLE: {
-			chunk = (websocket_chunk*)pss->send_buffer.First();
+			websocket_chunk* chunk = (websocket_chunk*)pss->send_buffer.First();
 			if (chunk == NULL) {
 				// libwebsocket_callback_on_writable(context, wsi);
 				break;
 			}
 			int len = chunk->size - chunk->read;
-			n = libwebsocket_write(wsi, &chunk->data[LWS_SEND_BUFFER_PRE_PADDING + chunk->read], chunk->size - chunk->read, LWS_WRITE_BINARY);
+			int n = libwebsocket_write(wsi, &chunk->data[LWS_SEND_BUFFER_PRE_PADDING + chunk->read], chunk->size - chunk->read, LWS_WRITE_BINARY);
 			if (n < 0) {
 				return 1;
 			}
@@ -137,17 +134,10 @@ websocket_callback(struct libwebsocket_context *context,
 		}
 		break;
 
-
-		case LWS_CALLBACK_RECEIVE: {
-			chunk = (websocket_chunk*)ctx_data->recv_buffer.Allocate(len + sizeof(websocket_chunk));
-			if (chunk == 0) {
+		case LWS_CALLBACK_RECEIVE:
+			if (!recveive_chunk(ctx_data, pss, in, len)) {
 				return 1;
 			}
-			chunk->size = len;
-			chunk->read = 0;
-			memcpy(&chunk->addr, &pss->addr, sizeof(sockaddr_in));
-			memcpy(&chunk->data[0], in, len);
-		}
 		break;
 
 		default:
