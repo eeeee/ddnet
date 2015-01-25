@@ -1,15 +1,18 @@
 /* (c) eeeee */
 
+#if defined(WEBSOCKETS)
+
 #include <string.h>
 #include <stdlib.h>
 
 #include "engine/external/libwebsockets/libwebsockets.h"
 #include "base/system.h"
 #include "ringbuffer.h"
-#include <netinet/in.h>
 #include <arpa/inet.h>
 
 extern "C" {
+
+#include "websockets.h"
 
 typedef TStaticRingBuffer<unsigned char, 640*1024, CRingBufferBase::FLAG_RECYCLE> TRecvBuffer;
 typedef TStaticRingBuffer<unsigned char, 64*1024, CRingBufferBase::FLAG_RECYCLE> TSendBuffer;
@@ -28,7 +31,7 @@ struct per_session_data {
 	TSendBuffer send_buffer;
 };
 
-#define WS_CLIENTS 2048
+#define WS_CLIENTS 128
 
 struct context_data {
 	per_session_data* port_map[WS_CLIENTS];
@@ -37,7 +40,7 @@ struct context_data {
 };
 
 static int
-recveive_chunk(context_data *ctx_data, struct per_session_data *pss, void *in, size_t len) {
+receive_chunk(context_data *ctx_data, struct per_session_data *pss, void *in, size_t len) {
 	websocket_chunk* chunk = (websocket_chunk*)ctx_data->recv_buffer.Allocate(len + sizeof(websocket_chunk));
 	if (chunk == 0) {
 		return 1;
@@ -60,21 +63,6 @@ websocket_callback(struct libwebsocket_context *context,
 
 	switch (reason) {
 
-		case LWS_CALLBACK_CLIENT_FILTER_PRE_ESTABLISH: {
-			int port = -1;
-			for (int i = 0; i < WS_CLIENTS; i++) {
-				int j = (ctx_data->last_used_port + i + 1) % WS_CLIENTS;
-				if (ctx_data->port_map[j] == NULL) {
-					port = j;
-					break;
-				}
-			}
-			if (port == -1) {
-				return -1;
-			}
-		}
-		break;
-
 		case LWS_CALLBACK_ESTABLISHED: {
 			int port = -1;
 			for (int i = 0; i < WS_CLIENTS; i++) {
@@ -85,6 +73,8 @@ websocket_callback(struct libwebsocket_context *context,
 				}
 			}
 			if (port == -1) {
+				dbg_msg("websockets", "no free ports, dropping");
+				pss->port = -1;
 				return -1;
 			}
 			ctx_data->last_used_port = port;
@@ -106,7 +96,7 @@ websocket_callback(struct libwebsocket_context *context,
 		case LWS_CALLBACK_CLOSED: {
 			dbg_msg("websockets", "connection with fake port %d closed", pss->port);
 			unsigned char close_packet[] = {0x10, 0x0e, 0x00, 0x04};
-			recveive_chunk(ctx_data, pss, &close_packet, sizeof(close_packet));
+			receive_chunk(ctx_data, pss, &close_packet, sizeof(close_packet));
 			pss->wsi = 0;
 			ctx_data->port_map[pss->port] = NULL;
 		}
@@ -115,7 +105,6 @@ websocket_callback(struct libwebsocket_context *context,
 		case LWS_CALLBACK_SERVER_WRITEABLE: {
 			websocket_chunk* chunk = (websocket_chunk*)pss->send_buffer.First();
 			if (chunk == NULL) {
-				// libwebsocket_callback_on_writable(context, wsi);
 				break;
 			}
 			int len = chunk->size - chunk->read;
@@ -127,7 +116,6 @@ websocket_callback(struct libwebsocket_context *context,
 				chunk->read += n;
 				libwebsocket_callback_on_writable(context, wsi);
 				break;
-				// return -1;
 			}
 			pss->send_buffer.PopFirst();
 			libwebsocket_callback_on_writable(context, wsi);
@@ -135,7 +123,10 @@ websocket_callback(struct libwebsocket_context *context,
 		break;
 
 		case LWS_CALLBACK_RECEIVE:
-			if (!recveive_chunk(ctx_data, pss, in, len)) {
+			if (pss->port == -1) {
+				return -1;
+			}
+			if (!receive_chunk(ctx_data, pss, in, len)) {
 				return 1;
 			}
 		break;
@@ -161,7 +152,6 @@ static struct libwebsocket_protocols protocols[] = {
 static libwebsocket_context* contexts[640]; // 640 contexts ought to be enough for anybody
 
 int websocket_create(const char* addr, int port) {
-	struct libwebsocket_context *context;
 	struct lws_context_creation_info info;
 
 	memset(&info, 0, sizeof(info));
@@ -191,7 +181,7 @@ int websocket_create(const char* addr, int port) {
 		free(ctx_data);
 		return -1;
 	}
-	memset(ctx_data->port_map, NULL, sizeof(ctx_data->port_map));
+	memset(ctx_data->port_map, 0, sizeof(ctx_data->port_map));
 	ctx_data->recv_buffer.Init();
 	ctx_data->last_used_port = 0;
 	return first_free;
@@ -204,6 +194,7 @@ int websocket_destroy(int socket) {
 	free(libwebsocket_context_user(contexts[socket]));
 	libwebsocket_context_destroy(contexts[socket]);
 	contexts[socket] = NULL;
+	return 0;
 }
 
 int websocket_recv(int socket, unsigned char* data, size_t maxsize, struct sockaddr_in *sockaddrbuf, size_t fromLen) {
@@ -253,3 +244,4 @@ int websocket_send(int socket, const unsigned char* data, size_t size, int port)
 }
 
 }
+#endif

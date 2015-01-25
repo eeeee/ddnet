@@ -17,6 +17,8 @@ config:Add(FreeType.OptFind("freetype", true))
 config:Add(Curl.OptFind("curl", true))
 config:Finalize("config.lua")
 
+websockets = ScriptArgs["websockets"]
+
 -- data compiler
 function Script(name)
 	if family == "windows" then
@@ -175,6 +177,10 @@ function build(settings)
 		settings.link.flags:Add(ldflags)
 	end
 
+	if websockets == "1" then
+		settings.cc.defines:Add("WEBSOCKETS")
+	end
+
 	if config.compiler.driver == "cl" then
 		settings.cc.flags:Add("/wd4244")
 		settings.cc.flags:Add("/EHsc")
@@ -247,7 +253,9 @@ function build(settings)
 	wavpack = Compile(settings, Collect("src/engine/external/wavpack/*.c"))
 	pnglite = Compile(settings, Collect("src/engine/external/pnglite/*.c"))
 	jsonparser = Compile(settings, Collect("src/engine/external/json-parser/*.cpp"))
-	libwebsockets = Compile(settings, Collect("src/engine/external/libwebsockets/*.c"))
+	if websockets == "1" then
+		libwebsockets = Compile(settings, Collect("src/engine/external/libwebsockets/*.c"))
+	end
 
 	-- build game components
 	engine_settings = settings:Copy()
@@ -333,7 +341,7 @@ function build(settings)
 	client = Compile(client_settings, Collect("src/engine/client/*.cpp"))
 	server = Compile(server_settings, Collect("src/engine/server/*.cpp"))
 
-	versionserver = Compile(settings, Collect("src/versionsrv/*.cpp", "src/engine/server/websockets.cpp"))
+	versionserver = Compile(settings, Collect("src/versionsrv/*.cpp"))
 	masterserver = Compile(settings, Collect("src/mastersrv/*.cpp"))
 	twping = Compile(settings, Collect("src/twping/*.cpp"))
 	game_shared = Compile(settings, Collect("src/game/*.cpp"), nethash, network_source)

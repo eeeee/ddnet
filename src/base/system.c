@@ -9,7 +9,10 @@
 
 #include "system.h"
 #include "confusables.h"
-#include "engine/shared/websockets.h"
+
+#if defined(WEBSOCKETS)
+	#include "engine/shared/websockets.h"
+#endif
 
 #if defined(CONF_FAMILY_UNIX)
 	#include <sys/time.h>
@@ -998,6 +1001,7 @@ static int priv_net_close_all_sockets(NETSOCKET sock)
 		sock.type &= ~NETTYPE_IPV4;
 	}
 
+#if defined(WEBSOCKETS)
 	/* close down websocket_ipv4 */
 	if(sock.web_ipv4sock >= 0)
 	{
@@ -1005,6 +1009,7 @@ static int priv_net_close_all_sockets(NETSOCKET sock)
 		sock.web_ipv4sock = -1;
 		sock.type &= ~NETTYPE_WEBSOCKET_IPV4;
 	}
+#endif
 
 	/* close down ipv6 */
 	if(sock.ipv6sock >= 0)
@@ -1102,6 +1107,7 @@ NETSOCKET net_udp_create(NETADDR bindaddr)
 		}
 	}
 
+#if defined(WEBSOCKETS)
 	if(bindaddr.type&NETTYPE_WEBSOCKET_IPV4)
 	{
 		int socket = -1;
@@ -1110,15 +1116,15 @@ NETSOCKET net_udp_create(NETADDR bindaddr)
 		tmpbindaddr.type = NETTYPE_WEBSOCKET_IPV4;
 
 		char addr_str[NETADDR_MAXSTRSIZE];
-		net_addr_str(&tmpbindaddr, &addr_str, sizeof(addr_str), 0);
-
-		socket = websocket_create(&addr_str, tmpbindaddr.port);
+		net_addr_str(&tmpbindaddr, addr_str, sizeof(addr_str), 0);
+		socket = websocket_create(addr_str, tmpbindaddr.port);
 
 		if (socket >= 0) {
 			sock.type |= NETTYPE_WEBSOCKET_IPV4;
 			sock.web_ipv4sock = socket;
 		}
 	}
+#endif
 
 	if(bindaddr.type&NETTYPE_IPV6)
 	{
@@ -1190,13 +1196,15 @@ int net_udp_send(NETSOCKET sock, const NETADDR *addr, const void *data, int size
 			dbg_msg("net", "can't sent ipv4 traffic to this socket");
 	}
 
+#if defined(WEBSOCKETS)
 	if(addr->type&NETTYPE_WEBSOCKET_IPV4)
 	{
 		if(sock.web_ipv4sock >= 0)
-			d = websocket_send(sock.web_ipv4sock, (const char*)data, size, addr->port);
+			d = websocket_send(sock.web_ipv4sock, (const unsigned char*)data, size, addr->port);
 		else
 			dbg_msg("net", "can't sent websocket_ipv4 traffic to this socket");
 	}
+#endif
 
 	if(addr->type&NETTYPE_IPV6)
 	{
@@ -1263,12 +1271,14 @@ int net_udp_recv(NETSOCKET sock, NETADDR *addr, void *data, int maxsize)
 		bytes = recvfrom(sock.ipv6sock, (char*)data, maxsize, 0, (struct sockaddr *)&sockaddrbuf, &fromlen);
 	}
 
+#if defined(WEBSOCKETS)
 	if(bytes <= 0 && sock.web_ipv4sock >= 0)
 	{
 		fromlen = sizeof(struct sockaddr);
-		bytes = websocket_recv(sock.web_ipv4sock, data, maxsize, (struct sockaddr *)&sockaddrbuf, fromlen);
+		bytes = websocket_recv(sock.web_ipv4sock, data, maxsize, (struct sockaddr_in *)&sockaddrbuf, fromlen);
 		((struct sockaddr_in *)&sockaddrbuf)->sin_family = AF_WEBSOCKET_INET;
 	}
+#endif
 
 	if(bytes > 0)
 	{
