@@ -74,7 +74,9 @@ public:
 		net_init();
 		CNetBase::Init();
 
+#if !defined(EMSCRIPTEN)
 		m_JobPool.Init(1);
+#endif
 
 		m_Logging = false;
 	}

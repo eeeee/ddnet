@@ -352,8 +352,10 @@ void CGameConsole::OnRender()
 	if (m_ConsoleState == CONSOLE_CLOSED)
 		return;
 
+#if !defined(EMSCRIPTEN)
 	if (m_ConsoleState == CONSOLE_OPEN)
 		Input()->MouseModeAbsolute();
+#endif
 
 	float ConsoleHeightScale;
 

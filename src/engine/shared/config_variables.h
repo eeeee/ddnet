@@ -8,7 +8,7 @@
 #include "././game/variables.h"
 
 
-MACRO_CONFIG_STR(PlayerName, player_name, 16, "nameless tee", CFGFLAG_SAVE|CFGFLAG_CLIENT, "Name of the player")
+MACRO_CONFIG_STR(PlayerName, player_name, 16, "browser tee", CFGFLAG_SAVE|CFGFLAG_CLIENT, "Name of the player")
 MACRO_CONFIG_STR(PlayerClan, player_clan, 12, "", CFGFLAG_SAVE|CFGFLAG_CLIENT, "Clan of the player")
 MACRO_CONFIG_INT(PlayerCountry, player_country, -1, -1, 1000, CFGFLAG_SAVE|CFGFLAG_CLIENT, "Country of the player")
 MACRO_CONFIG_STR(Password, password, 32, "", CFGFLAG_CLIENT|CFGFLAG_SERVER, "Password to the server")
@@ -60,7 +60,7 @@ MACRO_CONFIG_STR(BrFilterExcludeTypes, br_filter_exclude_types, 128, "", CFGFLAG
 
 MACRO_CONFIG_INT(BrSort, br_sort, 1, 0, 256, CFGFLAG_SAVE|CFGFLAG_CLIENT, "")
 MACRO_CONFIG_INT(BrSortOrder, br_sort_order, 0, 0, 1, CFGFLAG_SAVE|CFGFLAG_CLIENT, "")
-MACRO_CONFIG_INT(BrMaxRequests, br_max_requests, 25, 0, 1000, CFGFLAG_SAVE|CFGFLAG_CLIENT, "Number of requests to use when refreshing server browser")
+MACRO_CONFIG_INT(BrMaxRequests, br_max_requests, 5, 0, 1000, CFGFLAG_SAVE|CFGFLAG_CLIENT, "Number of requests to use when refreshing server browser")
 
 MACRO_CONFIG_INT(SndBufferSize, snd_buffer_size, 512, 128, 32768, CFGFLAG_SAVE|CFGFLAG_CLIENT, "Sound buffer size")
 #if defined(__ANDROID__)
@@ -68,7 +68,7 @@ MACRO_CONFIG_INT(SndRate, snd_rate, 44100, 0, 0, CFGFLAG_SAVE|CFGFLAG_CLIENT, "S
 #else
 MACRO_CONFIG_INT(SndRate, snd_rate, 48000, 0, 0, CFGFLAG_SAVE|CFGFLAG_CLIENT, "Sound mixing rate")
 #endif
-MACRO_CONFIG_INT(SndEnable, snd_enable, 1, 0, 1, CFGFLAG_SAVE|CFGFLAG_CLIENT, "Sound enable")
+MACRO_CONFIG_INT(SndEnable, snd_enable, 0, 0, 1, CFGFLAG_SAVE|CFGFLAG_CLIENT, "Sound enable")
 MACRO_CONFIG_INT(SndMusic, snd_enable_music, 0, 0, 1, CFGFLAG_SAVE|CFGFLAG_CLIENT, "Play background music")
 MACRO_CONFIG_INT(SndVolume, snd_volume, 100, 0, 100, CFGFLAG_SAVE|CFGFLAG_CLIENT, "Sound volume")
 MACRO_CONFIG_INT(SndDevice, snd_device, -1, 0, 0, CFGFLAG_SAVE|CFGFLAG_CLIENT, "(deprecated) Sound device to use")
@@ -275,18 +275,18 @@ MACRO_CONFIG_INT(ClLaserOutlineLht, cl_laser_outline_lht, 41, 0, 255, CFGFLAG_CL
 MACRO_CONFIG_INT(ConnTimeout, conn_timeout, 100, 5, 1000, CFGFLAG_SAVE|CFGFLAG_CLIENT|CFGFLAG_SERVER, "Network timeout")
 MACRO_CONFIG_INT(ConnTimeoutProtection, conn_timeout_protection, 1000, 5, 10000, CFGFLAG_SAVE|CFGFLAG_SERVER, "Network timeout protection")
 MACRO_CONFIG_INT(ClShowIDs, cl_show_ids, 0, 0, 1, CFGFLAG_SAVE|CFGFLAG_CLIENT, "Whether to show client ids in scoreboard")
-MACRO_CONFIG_INT(ClAutoRaceRecord, cl_auto_race_record, 1, 0, 1, CFGFLAG_CLIENT|CFGFLAG_SAVE, "Save the best demo of each race")
+MACRO_CONFIG_INT(ClAutoRaceRecord, cl_auto_race_record, 0, 0, 1, CFGFLAG_CLIENT|CFGFLAG_SAVE, "Save the best demo of each race")
 MACRO_CONFIG_INT(ClDemoName, cl_demo_name, 1, 0, 1, CFGFLAG_CLIENT|CFGFLAG_SAVE, "Save the player name within the demo")
 MACRO_CONFIG_INT(ClDemoAssumeRace, cl_demo_assume_race, 1, 0, 1, CFGFLAG_CLIENT|CFGFLAG_SAVE, "Assume that demos are race demos")
 MACRO_CONFIG_INT(ClRaceGhost, cl_race_ghost, 1, 0, 1, CFGFLAG_CLIENT|CFGFLAG_SAVE, "Enable ghost")
 MACRO_CONFIG_INT(ClRaceShowGhost, cl_race_show_ghost, 1, 0, 1, CFGFLAG_CLIENT|CFGFLAG_SAVE, "Show ghost")
-MACRO_CONFIG_INT(ClRaceSaveGhost, cl_race_save_ghost, 1, 0, 1, CFGFLAG_CLIENT|CFGFLAG_SAVE, "Save ghost")
+MACRO_CONFIG_INT(ClRaceSaveGhost, cl_race_save_ghost, 0, 0, 1, CFGFLAG_CLIENT|CFGFLAG_SAVE, "Save ghost")
 MACRO_CONFIG_INT(ClDDRaceScoreBoard, cl_ddrace_scoreboard, 1, 0, 1, CFGFLAG_SAVE|CFGFLAG_CLIENT, "Enable DDRace Scoreboard ")
 MACRO_CONFIG_INT(ClShowDecisecs, cl_show_decisecs, 1, 0, 1, CFGFLAG_SAVE|CFGFLAG_CLIENT, "Show deciseconds in game time")
 MACRO_CONFIG_INT(SvResetPickups, sv_reset_pickups, 0, 0, 1, CFGFLAG_SERVER, "Whether the weapons are reset on passing the start tile or not")
 MACRO_CONFIG_INT(ClShowOthers, cl_show_others, 0, 0, 1, CFGFLAG_CLIENT|CFGFLAG_SAVE, "Show players in other teams")
 MACRO_CONFIG_INT(ClShowOthersAlpha, cl_show_others_alpha, 40, 0, 100, CFGFLAG_CLIENT|CFGFLAG_SAVE, "Show players in other teams (alpha value, 0 invisible, 100 fully visible)")
-MACRO_CONFIG_INT(ClOverlayEntities, cl_overlay_entities, 0, 0, 100, CFGFLAG_CLIENT, "Overlay game tiles with a percentage of opacity")
+MACRO_CONFIG_INT(ClOverlayEntities, cl_overlay_entities, 0, 0, 0, CFGFLAG_CLIENT, "Overlay game tiles with a percentage of opacity")
 MACRO_CONFIG_INT(ClShowQuads, cl_show_quads, 1, 0, 1, CFGFLAG_CLIENT|CFGFLAG_SAVE, "Show quads")
 MACRO_CONFIG_INT(ClZoomBackgroundLayers, cl_zoom_background_layers, 0, 0, 1, CFGFLAG_CLIENT|CFGFLAG_SAVE, "Zoom background layers")
 MACRO_CONFIG_INT(ClBackgroundHue, cl_background_hue, 0, 0, 255, CFGFLAG_CLIENT|CFGFLAG_SAVE, "Background color hue")

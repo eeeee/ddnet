@@ -8,6 +8,17 @@
 #include <string.h>
 #include <climits>
 
+#if defined(EMSCRIPTEN)
+	#include <emscripten.h>
+#else
+typedef void (*em_arg_callback_func)(void*);
+void emscripten_set_main_loop_arg(em_arg_callback_func func, void *arg, int fps, int simulate_infinite_loop) {
+  func(arg);
+}
+void emscripten_cancel_main_loop(void) {
+}
+#endif
+
 #include <base/math.h>
 #include <base/vmath.h>
 #include <base/system.h>
@@ -718,8 +729,10 @@ void CClient::Connect(const char *pAddress)
 void CClient::DisconnectWithReason(const char *pReason)
 {
 	char aBuf[512];
+	/*
 	str_format(aBuf, sizeof(aBuf), "disconnecting. reason='%s'", pReason?pReason:"unknown");
 	m_pConsole->Print(IConsole::OUTPUT_LEVEL_STANDARD, "client", aBuf);
+	*/
 
 	// stop demo playback and recorder
 	m_DemoPlayer.Stop();
@@ -2523,6 +2536,10 @@ void CClient::InitInterfaces()
 	}
 }
 
+void mainLoop(CClient* cl) {
+	cl->MainLoop();
+}
+
 void CClient::Run()
 {
 	m_LocalStartTime = time_get();
@@ -2543,9 +2560,11 @@ void CClient::Run()
 
 	// init graphics
 	{
+		/*
 		if(g_Config.m_GfxThreadedOld)
 			m_pGraphics = CreateEngineGraphicsThreaded();
 		else
+		*/
 			m_pGraphics = CreateEngineGraphics();
 
 		bool RegisterFail = false;
@@ -2560,7 +2579,11 @@ void CClient::Run()
 	}
 
 	// init sound, allowed to fail
+#if defined(EMSCRIPTEN)
+	m_SoundInitFailed = 1;
+#else
 	m_SoundInitFailed = Sound()->Init() != 0;
+#endif
 
 	// open socket
 	{
@@ -2631,9 +2654,13 @@ void CClient::Run()
 	bool LastE = false;
 	bool LastG = false;
 
-	while (1)
-	{
-		//
+	emscripten_set_main_loop_arg((void (*)(void *))mainLoop, this, 0, 1);
+}
+
+void CClient::MainLoop() {
+	do {
+		set_new_tick();
+
 		VersionUpdate();
 
 		// handle pending connects
@@ -2648,6 +2675,7 @@ void CClient::Run()
 		if(Input()->Update())
 			break;	// SDL_QUIT
 
+		/*
 		// update sound
 		Sound()->Update();
 
@@ -2763,8 +2791,10 @@ void CClient::Run()
 			if(Input()->VideoRestartNeeded())
 			{
 				m_pGraphics->Init();
+#if !defined(EMSCRIPTEN)
 				LoadData();
 				GameClient()->OnInit();
+#endif
 			}
 		}
 
@@ -2789,6 +2819,7 @@ void CClient::Run()
 
 		// update local time
 		m_LocalTime = (time_get()-m_LocalStartTime)/(float)time_freq();
+/*
 	}
 
 	GameClient()->OnShutdown();
@@ -2802,6 +2833,11 @@ void CClient::Run()
 		SDL_Quit();
 	}
 }
+*/
+		return;
+	} while (false);
+	emscripten_cancel_main_loop();
+};
 
 bool CClient::CtrlShiftKey(int Key, bool &Last)
 {
@@ -3176,7 +3212,7 @@ int main(int argc, const char **argv) // ignore_convention
 	}
 #endif
 
-#if !defined(CONF_PLATFORM_MACOSX)
+#if !defined(CONF_PLATFORM_MACOSX) && !defined(EMSCRIPTEN)
 	dbg_enable_threaded();
 #endif
 
@@ -3263,7 +3299,7 @@ int main(int argc, const char **argv) // ignore_convention
 
 	pClient->Engine()->InitLogfile();
 
-#if defined(CONF_FAMILY_UNIX)
+#if defined(CONF_FAMILY_UNIX) && !defined(EMSCRIPTEN)
 	FifoConsole *fifoConsole = new FifoConsole(pConsole, g_Config.m_ClInputFifo, CFGFLAG_CLIENT);
 #endif
 
@@ -3271,7 +3307,7 @@ int main(int argc, const char **argv) // ignore_convention
 	dbg_msg("client", "starting...");
 	pClient->Run();
 
-#if defined(CONF_FAMILY_UNIX)
+#if defined(CONF_FAMILY_UNIX) && !defined(EMSCRIPTEN)
 	delete fifoConsole;
 #endif
 

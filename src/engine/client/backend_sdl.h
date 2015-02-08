@@ -1,3 +1,4 @@
+/*
 
 #include "SDL.h"
 
@@ -310,3 +311,4 @@ public:
 	virtual int WindowOpen();
 	virtual void NotifyWindow();
 };
+*/

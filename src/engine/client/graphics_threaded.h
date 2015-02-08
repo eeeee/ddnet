@@ -1,3 +1,4 @@
+/*
 #pragma once
 
 #include <engine/graphics.h>
@@ -446,3 +447,4 @@ public:
 };
 
 extern IGraphicsBackend *CreateGraphicsBackend();
+*/

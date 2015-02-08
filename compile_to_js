@@ -1,0 +1,45 @@
+#!/bin/bash
+
+die() { echo "$@" 1>&2 ; exit 1; }
+
+emcc -v &> /dev/null || die "emsdk not activated"
+
+# override gcc and g++
+mkdir -p /tmp/gcc_mocks || die "can't create tmp stuff"
+pushd /tmp/gcc_mocks > /dev/null || die "can't create tmp stuff"
+rm -f gcc g++ sdl-config
+ln -s `which emcc` gcc || die "can't mock gcc"
+ln -s `which em++` g++ || die "can't mock g++"
+ln -s $EMSCRIPTEN/system/bin/sdl-config . || die "can't mock sdl-config"
+popd > /dev/null
+
+# compile
+PATH=/tmp/gcc_mocks:$PATH emmake ./bam client_release -v || die "compilation error :("
+ln -fs DDNet ddnet.bc || die ""
+pushd data > /dev/null || die "wheres data"
+PRELOAD=`ls skins/*.png | sed 's/^\(.*\)$/--preload-file "\1"/g'`
+
+echo $PRELOAD | xargs \
+emcc ../ddnet.bc ../libfreetype.opt.bc -o ../ddnet.html \
+	--js-library ../tw.js \
+	--pre-js ../pre.js \
+	-s EXPORTED_GLOBALS="['loadURL']" \
+	-O3 --closure 1 \
+	-s GL_FFP_ONLY=1 \
+	-s NO_EXIT_RUNTIME=1 \
+	-s CORRECT_ROUNDINGS=0 \
+	-s DOUBLE_MODE=0 \
+	-s FORCE_ALIGNED_MEMORY=1 \
+	-s PRECISE_I64_MATH=0 \
+	-s TOTAL_MEMORY=33554432 \
+	-s ASSERTIONS=0 \
+	-s LEGACY_GL_EMULATION=1 \
+	--preload-file fonts/DejaVuSans.ttf \
+	|| die "linking error"
+popd > /dev/null
+
+rm -r /tmp/gcc_mocks/
+echo "********"
+echo now run
+echo python -m SimpleHTTPServer 8080
+echo and navigate to http://localhost:8080/ddnet.html

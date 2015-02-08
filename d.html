@@ -1,0 +1,87 @@
+<!doctype html>
+
+<!--
+
+  ported to javascript by eeeee, using http://emscripten.org/
+  source and licensing: https://github.com/eeeee/ddnet/tree/js
+
+  based on work by:
+  - def- and DDNet contributors: https://github.com/def-/ddnet/
+  - eeeee and fstd: https://github.com/eeeee/teeworlds/tree/ddrace64
+  - greyfox and DDRace contributors: https://github.com/DDRace/teeworlds
+  - matricks and Teeworlds contributors: https://github.com/teeworlds/teeworlds
+
+-->
+
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>DDNet WebClient</title>
+  </head>
+  <body style="margin:0; width: 100%; height: 100%; overflow: hidden;">
+
+    <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+
+    <script type='text/javascript'>
+
+      function __triggerKeyboardEvent(el, keyCode)
+      {
+          var eventObj = document.createEventObject ?
+          document.createEventObject() : document.createEvent("Events");
+
+          if(eventObj.initEvent){
+            eventObj.initEvent("keydown", true, true);
+          }
+
+          eventObj.keyCode = keyCode;
+          eventObj.which = keyCode;
+
+          el.dispatchEvent ? el.dispatchEvent(eventObj) : el.fireEvent("onkeydown", eventObj);
+      }
+
+      var canvas = document.getElementById('canvas');
+      canvas.setAttribute('width', window.innerWidth);
+      canvas.setAttribute('height', window.innerHeight);
+
+      var Module = {
+        preRun: [],
+        postRun: [],
+        canvas: (function() {
+          var canvas = document.getElementById('canvas');
+
+          // As a default initial behavior, pop up an alert when webgl context is lost. To make your
+          // application robust, you may want to override this behavior before shipping!
+          // See http://www.khronos.org/registry/webgl/specs/latest/1.0/#5.15.2
+          canvas.addEventListener("webglcontextlost", function(e) { alert('WebGL context lost. You will need to reload the page.'); e.preventDefault(); }, false);
+
+          pointerLockChange = function(e) {
+              var hasLock = document['pointerLockElement'] === canvas ||
+                  document['mozPointerLockElement'] === canvas ||
+                  document['webkitPointerLockElement'] === canvas ||
+                  document['msPointerLockElement'] === canvas;
+              if (!hasLock) {
+		__triggerKeyboardEvent(canvas, 27);
+              }
+          };
+          document.addEventListener('pointerlockchange', pointerLockChange, false);
+          document.addEventListener('mozpointerlockchange', pointerLockChange, false);
+          document.addEventListener('webkitpointerlockchange', pointerLockChange, false);
+          document.addEventListener('mspointerlockchange', pointerLockChange, false);
+
+          return canvas;
+        })(),
+        totalDependencies: 0
+      };
+      window.onerror = function(event) {
+        // TODO: do not warn on ok events like simulating an infinite loop or exitStatus
+      };
+      var onResize = function() {
+	Module['getCtx']().viewport(0, 0, window.innerWidth, window.innerHeight);
+        Module['setCanvasSize'](window.innerWidth, window.innerHeight);
+      };
+      window.addEventListener('resize', onResize, false);
+    </script>
+    <script async type="text/javascript" src="ddnet.js"></script>
+  </body>
+</html>

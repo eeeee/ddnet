@@ -55,6 +55,8 @@ int CJobPool::Init(int NumThreads)
 
 int CJobPool::Add(CJob *pJob, JOBFUNC pfnFunc, void *pData)
 {
+	pfnFunc(pData);
+	return 0;
 	mem_zero(pJob, sizeof(CJob));
 	pJob->m_pfnFunc = pfnFunc;
 	pJob->m_pFuncData = pData;

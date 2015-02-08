@@ -41,6 +41,9 @@
 
 #include "graphics.h"
 
+extern "C" {
+  extern void loadTexture(const char* path, GLuint texture);
+}
 
 #if defined(CONF_PLATFORM_MACOSX)
 
@@ -229,6 +232,23 @@ void CGraphics_OpenGL::ClipDisable()
 	glDisable(GL_SCISSOR_TEST);
 }
 
+void CGraphics_OpenGL::ModeCombine()
+{
+	//todo: automatically detect when this is needed by looking at current texture format
+	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE);
+
+	glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB, GL_REPLACE);
+	glTexEnvi(GL_TEXTURE_ENV, GL_SRC0_RGB, GL_PREVIOUS);
+	glTexEnvi(GL_TEXTURE_ENV, GL_SRC1_RGB, GL_TEXTURE);
+	glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND0_RGB, GL_SRC_COLOR);
+	glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND1_RGB, GL_SRC_COLOR);
+}
+
+void CGraphics_OpenGL::ModeModulate()
+{
+	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+}
+
 void CGraphics_OpenGL::BlendNone()
 {
 	glDisable(GL_BLEND);
@@ -344,6 +364,11 @@ int CGraphics_OpenGL::LoadTextureRawSub(int TextureID, int x, int y, int Width, 
 	return 0;
 }
 
+int isPowerOfTwo(unsigned int x)
+{
+  return ((x != 0) && ((x & (~x + 1)) == x));
+}
+
 int CGraphics_OpenGL::LoadTextureRaw(int Width, int Height, int Format, const void *pData, int StoreFormat, int Flags)
 {
 	int Mipmap = 1;
@@ -414,6 +439,10 @@ int CGraphics_OpenGL::LoadTextureRaw(int Width, int Height, int Format, const vo
 	glGenTextures(1, &m_aTextures[Tex].m_Tex);
 	glBindTexture(GL_TEXTURE_2D, m_aTextures[Tex].m_Tex);
 
+	if (!isPowerOfTwo(Width) || !isPowerOfTwo(Height)) {
+		WrapClamp();
+	}
+
 	if(Flags&TEXLOAD_NOMIPMAPS)
 	{
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -424,7 +453,18 @@ int CGraphics_OpenGL::LoadTextureRaw(int Width, int Height, int Format, const vo
 	{
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
-		gluBuild2DMipmaps(GL_TEXTURE_2D, StoreOglformat, Width, Height, Oglformat, GL_UNSIGNED_BYTE, pTexData);
+		glTexImage2D(GL_TEXTURE_2D, 0, StoreOglformat, Width, Height, 0, Oglformat, GL_UNSIGNED_BYTE, pData);
+#ifdef EMSCRIPTEN
+		if (isPowerOfTwo(Width) && isPowerOfTwo(Height))
+		{
+			glGenerateMipmap(GL_TEXTURE_2D);
+		}
+		else
+#endif
+		{
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		}
 	}
 
 	// calculate memory usage
@@ -461,6 +501,14 @@ int CGraphics_OpenGL::LoadTexture(const char *pFilename, int StorageType, int St
 
 	if(l < 3)
 		return -1;
+
+	int Tex = m_FirstFreeTexture;
+	m_FirstFreeTexture = m_aTextures[Tex].m_Next;
+	m_aTextures[Tex].m_Next = -1;
+	glGenTextures(1, &m_aTextures[Tex].m_Tex);
+	loadTexture(pFilename, m_aTextures[Tex].m_Tex);
+	return Tex;
+
 	if(LoadPNG(&Img, pFilename, StorageType))
 	{
 		if (StoreFormat == CImageInfo::FORMAT_AUTO)
@@ -809,10 +857,12 @@ int CGraphics_OpenGL::Init()
 int CGraphics_SDL::TryInit()
 {
 	const SDL_VideoInfo *pInfo = SDL_GetVideoInfo();
+#if !defined(EMSCRIPTEN)
 	SDL_EventState(SDL_MOUSEMOTION, SDL_IGNORE); // prevent stuck mouse cursor sdl-bug when loosing fullscreen focus in windows
+#endif
 
 	// use current resolution as default
-#ifndef __ANDROID__
+#if !defined(__ANDROID__) && !defined(EMSCRIPTEN)
 	if(g_Config.m_GfxScreenWidth == 0 || g_Config.m_GfxScreenHeight == 0)
 #endif
 	{
@@ -860,7 +910,9 @@ int CGraphics_SDL::TryInit()
 	}
 
 	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+#if !defined(EMSCRIPTEN)
 	SDL_GL_SetAttribute(SDL_GL_SWAP_CONTROL, g_Config.m_GfxVsync);
+#endif
 
 	// set caption
 	SDL_WM_SetCaption("DDNet Client", "DDNet Client");
@@ -926,8 +978,10 @@ int CGraphics_SDL::Init()
 		if(g_Config.m_SndEnable)
 			Systems |= SDL_INIT_AUDIO;
 
+#if !defined(EMSCRIPTEN)
 		if(g_Config.m_ClEventthread)
 			Systems |= SDL_INIT_EVENTTHREAD;
+#endif
 
 		if(SDL_Init(Systems) < 0)
 		{
@@ -972,6 +1026,9 @@ void CGraphics_SDL::Maximize()
 
 int CGraphics_SDL::WindowActive()
 {
+#if defined(EMSCRIPTEN)
+	return 1;
+#endif
 	return SDL_GetAppState()&SDL_APPINPUTFOCUS;
 }
 
@@ -985,7 +1042,9 @@ void CGraphics_SDL::NotifyWindow()
 	// get window handle
 	SDL_SysWMinfo info;
 	SDL_VERSION(&info.version);
+#if !defined(EMSCRIPTEN)
 	if(!SDL_GetWMInfo(&info))
+#endif
 	{
 		dbg_msg("gfx", "unable to obtain window handle");
 		return;

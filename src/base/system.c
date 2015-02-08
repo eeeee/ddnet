@@ -10,6 +10,10 @@
 #include "system.h"
 #include "confusables.h"
 
+#if defined(EMSCRIPTEN)
+#include <emscripten.h>
+#endif
+
 #if defined(CONF_FAMILY_UNIX)
 	#include <sys/time.h>
 	#include <unistd.h>
@@ -665,6 +669,10 @@ int64 time_get()
 	if(new_tick != -1)
 		new_tick = 0;
 
+#if defined(EMSCRIPTEN)
+	last = clock() / (CLOCKS_PER_SEC / 1000000);
+	return last;
+#endif
 #if defined(CONF_FAMILY_UNIX)
 	struct timeval val;
 	gettimeofday(&val, NULL);

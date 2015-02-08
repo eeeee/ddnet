@@ -2,7 +2,13 @@
 #define ENGINE_CLIENT_FETCHER_H
 
 #define WIN32_LEAN_AND_MEAN
+#if defined(EMSCRIPTEN)
+	#define __i386__
+#endif
 #include "curl/curl.h"
+#if defined(EMSCRIPTEN)
+	#undef __i386__
+#endif
 #include "curl/easy.h"
 #include <engine/fetcher.h>
 
@@ -25,6 +31,12 @@ public:
 	bool FetchFile(CFetchTask *pTask);
 	static void WriteToFile(char *pData, size_t size, size_t nmemb, void *pFile);
 	static int ProgressCallback(void *pUser, double DlTotal, double DlCurr, double UlTotal, double UlCurr);
+
+#if defined(EMSCRIPTEN)
+	static void EmLoad(unsigned u, void *user, const char *url);
+	static void EmError(unsigned u, void *user, int errorCode);
+	static void EmProgress(unsigned u, void *user, int someNumber);
+#endif
 };
 
 #endif

@@ -1,3 +1,4 @@
+/*
 #include <base/detect.h>
 
 #if defined(CONF_FAMILY_WINDOWS)
@@ -719,3 +720,4 @@ void CGraphicsBackend_SDL_OpenGL::NotifyWindow()
 
 
 IGraphicsBackend *CreateGraphicsBackend() { return new CGraphicsBackend_SDL_OpenGL; }
+*/

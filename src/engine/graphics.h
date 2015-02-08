@@ -72,6 +72,9 @@ public:
 	virtual void MapScreen(float TopLeftX, float TopLeftY, float BottomRightX, float BottomRightY) = 0;
 	virtual void GetScreen(float *pTopLeftX, float *pTopLeftY, float *pBottomRightX, float *pBottomRightY) = 0;
 
+	virtual void ModeCombine() = 0;
+	virtual void ModeModulate() = 0;
+
 	// TODO: These should perhaps not be virtuals
 	virtual void BlendNone() = 0;
 	virtual void BlendNormal() = 0;
@@ -161,6 +164,8 @@ public:
 };
 
 extern IEngineGraphics *CreateEngineGraphics();
+#if !defined EMSCRIPTEN
 extern IEngineGraphics *CreateEngineGraphicsThreaded();
+#endif
 
 #endif

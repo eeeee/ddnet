@@ -2,6 +2,31 @@
 #include <engine/storage.h>
 #include "fetcher.h"
 
+#if defined(EMSCRIPTEN)
+#include "emscripten.h"
+
+void CFetcher::EmLoad(unsigned u, void *user, const char *url) {
+	CFetchTask *pTask = (CFetchTask *)user;
+	pTask->m_State = CFetchTask::STATE_DONE;
+	if(pTask->m_pfnCompCallback)
+		pTask->m_pfnCompCallback(pTask, pTask->m_pUser);
+}
+
+void CFetcher::EmError(unsigned u, void *user, int errorCode) {
+	CFetchTask *pTask = (CFetchTask *)user;
+	pTask->m_State = CFetchTask::STATE_ERROR;
+	if(pTask->m_pfnCompCallback)
+		pTask->m_pfnCompCallback(pTask, pTask->m_pUser);
+}
+
+void CFetcher::EmProgress(unsigned u, void *user, int someNumber) {
+	CFetchTask *pTask = (CFetchTask *)user;
+	pTask->m_Progress = someNumber;
+	if(pTask->m_pfnProgressCallback)
+		pTask->m_pfnProgressCallback(pTask, pTask->m_pUser);
+}
+#endif
+
 CFetchTask::CFetchTask()
 {
 	m_pNext = NULL;
@@ -19,16 +44,22 @@ CFetcher::CFetcher()
 bool CFetcher::Init()
 {
 	m_pStorage = Kernel()->RequestInterface<IStorage>();
+#if defined(EMSCRIPTEN)
+	return true;
+#else
 	if(!curl_global_init(CURL_GLOBAL_DEFAULT) && (m_pHandle = curl_easy_init()))
 		return true;
 	return false;
+#endif
 }
 
 CFetcher::~CFetcher()
 {
+#if !defined(EMSCRIPTEN)
 	if(m_pHandle)
 		curl_easy_cleanup(m_pHandle);
 	curl_global_cleanup();
+#endif
 }
 
 void CFetcher::QueueAdd(CFetchTask *pTask, const char *pUrl, const char *pDest, int StorageType, void *pUser, COMPFUNC pfnCompCb, PROGFUNC pfnProgCb)
@@ -42,6 +73,21 @@ void CFetcher::QueueAdd(CFetchTask *pTask, const char *pUrl, const char *pDest, 
 	pTask->m_Size = pTask->m_Progress = 0;
 	pTask->m_Abort = false;
 
+#if defined(EMSCRIPTEN)
+	for(int i = 0; pTask->m_pDest[i] != '\0'; i++)
+	{
+		if(pTask->m_pDest[i] == '/')
+		{
+			pTask->m_pDest[i] = '\0';
+			m_pStorage->CreateFolder(pTask->m_pDest, StorageType);
+			pTask->m_pDest[i] = '/';
+		}
+	}
+	char buf[1024];
+	m_pStorage->GetCompletePath(StorageType, pTask->m_pDest, buf, sizeof(buf));
+	pTask->m_State = CFetchTask::STATE_QUEUED;
+	emscripten_async_wget2(pUrl, buf, "GET", "", (void *)pTask, &EmLoad, &EmError, &EmProgress);
+#else
 	lock_wait(m_Lock);
 	if(!m_pFirst)
 	{
@@ -57,6 +103,7 @@ void CFetcher::QueueAdd(CFetchTask *pTask, const char *pUrl, const char *pDest, 
 	}
 	pTask->m_State = CFetchTask::STATE_QUEUED;
 	lock_release(m_Lock);
+#endif
 }
 
 void CFetcher::FetcherThread(void *pUser)

@@ -918,8 +918,8 @@ int CMenus::Render()
 	static bool s_SoundCheck = false;
 	if(!s_SoundCheck && m_Popup == POPUP_NONE)
 	{
-		if(Client()->SoundInitFailed())
-			m_Popup = POPUP_SOUNDERROR;
+		//if(Client()->SoundInitFailed())
+		//	m_Popup = POPUP_SOUNDERROR;
 		s_SoundCheck = true;
 	}
 
