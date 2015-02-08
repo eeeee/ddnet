@@ -621,6 +621,8 @@ public:
 					Graphics()->TextureSet(pSizeData->m_aTextures[0]);
 
 				Graphics()->QuadsBegin();
+				Graphics()->ModeCombine();
+
 				if (i == 0)
 					Graphics()->SetColor(m_TextOutlineR, m_TextOutlineG, m_TextOutlineB, m_TextOutlineA*m_TextA);
 				else
@@ -721,8 +723,10 @@ public:
 				}
 			}
 
-			if(pCursor->m_Flags&TEXTFLAG_RENDER)
+			if(pCursor->m_Flags&TEXTFLAG_RENDER) {
 				Graphics()->QuadsEnd();
+				Graphics()->ModeModulate();
+			}
 		}
 
 		pCursor->m_X = DrawX;

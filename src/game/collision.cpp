@@ -40,6 +40,7 @@ void CCollision::Init(class CLayers *pLayers)
 	m_Height = m_pLayers->GameLayer()->m_Height;
 	m_pTiles = static_cast<CTile *>(m_pLayers->Map()->GetData(m_pLayers->GameLayer()->m_Data));
 
+#if !defined(EMSCRIPTEN)
 	if(m_pLayers->TeleLayer())
 	{
 		unsigned int Size = m_pLayers->Map()->GetUncompressedDataSize(m_pLayers->TeleLayer()->m_Tele);
@@ -82,6 +83,7 @@ void CCollision::Init(class CLayers *pLayers)
 		if (Size >= m_Width*m_Height*sizeof(CTile))
 			m_pFront = static_cast<CTile *>(m_pLayers->Map()->GetData(m_pLayers->FrontLayer()->m_Front));
 	}
+#endif
 
 	for(int i = 0; i < m_Width*m_Height; i++)
 	{

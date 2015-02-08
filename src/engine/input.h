@@ -34,9 +34,9 @@ protected:
 	{
 		unsigned char m_Presses;
 		unsigned char m_Releases;
-	} m_aInputCount[2][1024];
+	} m_aInputCount[2][2048];
 
-	unsigned char m_aInputState[2][1024];
+	unsigned char m_aInputState[2][2048];
 	int m_InputCurrent;
 	bool m_InputDispatched;
 

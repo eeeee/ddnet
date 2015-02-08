@@ -597,6 +597,24 @@ int CMenus::RenderMenubar(CUIRect r)
 
 		Box.VSplitLeft(100.0f, &Button, &Box);
 		static int s_InternetButton=0;
+#if defined(EMSCRIPTEN)
+		if(DoButton_MenuTab(&s_InternetButton, Localize("Internet"), m_ActivePage==PAGE_INTERNET, &Button, CUI::CORNER_T))
+		{
+			ServerBrowser()->Refresh(IServerBrowser::TYPE_INTERNET);
+			NewPage = PAGE_INTERNET;
+			m_DoubleClickIndex = -1;
+		}
+
+                // about page
+                Box.VSplitLeft(10.0f, 0, &Box);
+                Box.VSplitLeft(90.0f, &Button, &Box);
+                static int s_AboutButton=0;
+                if (DoButton_MenuTab(&s_AboutButton, Localize("About"), m_ActivePage==PAGE_ABOUT, &Button, CUI::CORNER_T))
+                {
+                        NewPage = PAGE_ABOUT;
+                        m_DoubleClickIndex = -1;
+                }
+#else
 		if(DoButton_MenuTab(&s_InternetButton, Localize("Internet"), m_ActivePage==PAGE_INTERNET, &Button, CUI::CORNER_TL))
 		{
 			ServerBrowser()->Refresh(IServerBrowser::TYPE_INTERNET);
@@ -643,6 +661,7 @@ int CMenus::RenderMenubar(CUIRect r)
 			NewPage = PAGE_DEMOS;
 			m_DoubleClickIndex = -1;
 		}
+#endif
 	}
 	else
 	{
@@ -683,6 +702,12 @@ int CMenus::RenderMenubar(CUIRect r)
 	box.VSplitRight(30.0f, &box, 0);
 	*/
 
+#if defined(EMSCRIPTEN)
+	Box.VSplitRight(90.0f, &Box, &Button);
+	static int s_SettingsButton=0;
+	if(DoButton_MenuTab(&s_SettingsButton, "Settings", m_ActivePage==PAGE_SETTINGS, &Button, CUI::CORNER_T))
+		NewPage = PAGE_SETTINGS;
+#else
 	Box.VSplitRight(30.0f, &Box, &Button);
 	static int s_QuitButton=0;
 	if(DoButton_MenuTab(&s_QuitButton, "×", 0, &Button, CUI::CORNER_T))
@@ -701,6 +726,7 @@ int CMenus::RenderMenubar(CUIRect r)
 	{
 		g_Config.m_ClEditor = 1;
 	}
+#endif
 
 	if(NewPage != -1)
 	{
@@ -795,6 +821,38 @@ void CMenus::RenderNews(CUIRect MainView)
 			UI()->DoLabelScaled(&Label, line.c_str(), 15.f, -1, MainView.w-30.0f);
 		}
 	}
+}
+
+void CMenus::RenderAbout(CUIRect MainView)
+{
+	// TODO: Like the settings with big fonts
+	// Make it work WITHOUT version updates
+	// Show news once after each version or news update
+	RenderTools()->DrawUIRect(&MainView, ms_ColorTabbarActive, CUI::CORNER_ALL, 10.0f);
+
+	MainView.HSplitTop(15.0f, 0, &MainView);
+	MainView.VSplitLeft(15.0f, 0, &MainView);
+
+	CUIRect Label;
+	MainView.HSplitTop(20.0f, &Label, &MainView);
+	UI()->DoLabelScaled(&Label,
+		"Ported to JavaScript by eeeee, using http://emscripten.org/\n"
+		"Source and licensing: https://github.com/eeeee/ddnet/tree/js\n"
+"\n"
+"IRC: #ddnet on QuakeNet\n"
+"Download desktop version at: http://ddnet.tw/downloads\n"
+"\n"
+		"Based on work by:\n"
+"  - deen and DDNet contributors: https://github.com/def-/ddnet/\n"
+"  - eeeee and fstd: https://github.com/eeeee/teeworlds/tree/ddrace64\n"
+"  - greyfox and DDRace contributors: https://github.com/DDRace/teeworlds\n"
+"  - matricks and Teeworlds contributors: https://github.com/teeworlds/teeworlds\n"
+"\n"
+"Special thanks to:\n"
+"  - Learath2 for testing and adding many HTTP related features to DDNet\n"
+"  - fstd for contributing the populated server list JSON generation code\n"
+"  - deen for testing and deploying websocket-capable servers\n",
+20.0f, -1);
 }
 
 void CMenus::OnInit()
@@ -917,8 +975,10 @@ int CMenus::Render()
 	static bool s_SoundCheck = false;
 	if(!s_SoundCheck && m_Popup == POPUP_NONE)
 	{
+#if !defined(EMSCRIPTEN)
 		if(Client()->SoundInitFailed())
 			m_Popup = POPUP_SOUNDERROR;
+#endif
 		s_SoundCheck = true;
 	}
 
@@ -965,6 +1025,8 @@ int CMenus::Render()
 			RenderNews(MainView);
 		else if(g_Config.m_UiPage == PAGE_INTERNET)
 			RenderServerbrowser(MainView);
+		else if(g_Config.m_UiPage == PAGE_ABOUT)
+			RenderAbout(MainView);
 		else if(g_Config.m_UiPage == PAGE_LAN)
 			RenderServerbrowser(MainView);
 		else if(g_Config.m_UiPage == PAGE_DEMOS)
@@ -1631,7 +1693,7 @@ bool CMenus::OnMouseMove(float x, float y)
 	if(!m_MenuActive)
 		return false;
 
-#if defined(__ANDROID__) // No relative mouse on Android
+#if defined(__ANDROID__) || defined(EMSCRIPTEN) // No relative mouse on Android
 	m_MousePos.x = x;
 	m_MousePos.y = y;
 #else

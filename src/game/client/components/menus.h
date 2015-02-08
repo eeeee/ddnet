@@ -210,6 +210,7 @@ class CMenus : public CComponent
 	//void render_loading(float percent);
 	int RenderMenubar(CUIRect r);
 	void RenderNews(CUIRect MainView);
+	void RenderAbout(CUIRect MainView);
 
 	// found in menus_demo.cpp
 	void RenderDemoPlayer(CUIRect MainView);
@@ -277,6 +278,7 @@ public:
 		PAGE_SERVER_INFO,
 		PAGE_CALLVOTE,
 		PAGE_INTERNET,
+		PAGE_ABOUT,
 		PAGE_LAN,
 		PAGE_FAVORITES,
 		PAGE_DDNET,

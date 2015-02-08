@@ -1,0 +1,39 @@
+diff --git a/src/library_browser.js b/src/library_browser.js
+index dbf654b..3ee9de5 100644
+--- a/src/library_browser.js
++++ b/src/library_browser.js
+@@ -232,6 +232,7 @@ mergeInto(LibraryManager.library, {
+                               document['mozPointerLockElement'] === canvas ||
+                               document['webkitPointerLockElement'] === canvas ||
+                               document['msPointerLockElement'] === canvas;
++Browser.pointerLock = false;
+       }
+       if (canvas) {
+         // forced aspect ratio can be enabled by defining 'forcedAspectRatio' on Module
+diff --git a/src/library_fs.js b/src/library_fs.js
+index f3cedf6..1e8bfe8 100644
+--- a/src/library_fs.js
++++ b/src/library_fs.js
+@@ -319,7 +319,8 @@ mergeInto(LibraryManager.library, {
+     mayCreate: function(dir, name) {
+       try {
+         var node = FS.lookupNode(dir, name);
+-        return ERRNO_CODES.EEXIST;
++// h4x
++//        return ERRNO_CODES.EEXIST;
+       } catch (e) {
+       }
+       return FS.nodePermissions(dir, 'wx');
+diff --git a/src/library_sdl.js b/src/library_sdl.js
+index ee7a763..3f28a54 100644
+--- a/src/library_sdl.js
++++ b/src/library_sdl.js
+@@ -788,7 +788,7 @@ var LibrarySDL = {
+           code = SDL.keyCodes[event.keyCode] || event.keyCode;
+           // If this is one of the modifier keys (224 | 1<<10 - 227 | 1<<10), and the event specifies that it is
+           // a right key, add 4 to get the right key SDL key code.
+-          if (event.location === KeyboardEvent.DOM_KEY_LOCATION_RIGHT && code >= (224 | 1<<10) && code <= (227 | 1<<10)) {
++          if (event.location === KeyboardEvent['DOM_KEY_LOCATION_RIGHT'] && code >= (224 | 1<<10) && code <= (227 | 1<<10)) {
+             code += 4;
+           }
+         }

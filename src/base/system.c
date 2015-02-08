@@ -673,6 +673,10 @@ int64 time_get()
 	if(new_tick != -1)
 		new_tick = 0;
 
+#if defined(EMSCRIPTEN)
+	last = clock() / (CLOCKS_PER_SEC / 1000000);
+	return last;
+#endif
 #if defined(CONF_FAMILY_UNIX)
 	struct timeval val;
 	gettimeofday(&val, NULL);

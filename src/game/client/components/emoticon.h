@@ -12,6 +12,7 @@ class CEmoticon : public CComponent
 	bool m_WasActive;
 	bool m_Active;
 
+	vec2 m_InitialMouse;
 	vec2 m_SelectorMouse;
 	int m_SelectedEmote;
 

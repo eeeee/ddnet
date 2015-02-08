@@ -1,3 +1,4 @@
+#if !defined(EMSCRIPTEN)
 #include <base/system.h>
 #include <engine/storage.h>
 #include "fetcher.h"
@@ -158,3 +159,4 @@ int CFetcher::ProgressCallback(void *pUser, double DlTotal, double DlCurr, doubl
 		pTask->m_pfnProgressCallback(pTask, pTask->m_pUser);
 	return pTask->m_Abort ? -1 : 0;
 }
+#endif

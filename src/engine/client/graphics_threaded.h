@@ -1,3 +1,4 @@
+#if !defined(EMSCRIPTEN)
 #pragma once
 
 #include <engine/graphics.h>
@@ -447,3 +448,4 @@ public:
 };
 
 extern IGraphicsBackend *CreateGraphicsBackend();
+#endif

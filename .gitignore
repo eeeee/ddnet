@@ -49,3 +49,4 @@ bam.exe
 *.opensdf
 
 DDNet*
+js_build/release

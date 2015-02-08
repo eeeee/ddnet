@@ -179,7 +179,12 @@ int CNetConnection::Connect(NETADDR *pAddr)
 	m_PeerAddr = *pAddr;
 	mem_zero(m_ErrorString, sizeof(m_ErrorString));
 	m_State = NET_CONNSTATE_CONNECT;
+#if defined(EMSCRIPTEN)
+	// websockets are fine without tokens
+	SendControl(NET_CTRLMSG_CONNECT, 0, 0);
+#else
 	SendControl(NET_CTRLMSG_CONNECT, SECURITY_TOKEN_MAGIC, sizeof(SECURITY_TOKEN_MAGIC));
+#endif
 	return 0;
 }
 
@@ -412,7 +417,11 @@ int CNetConnection::Update()
 	else if(State() == NET_CONNSTATE_CONNECT)
 	{
 		if(time_get()-m_LastSendTime > time_freq()/2) // send a new connect every 500ms
+#if defined(EMSCRIPTEN)
+			SendControl(NET_CTRLMSG_CONNECT, 0, 0);
+#else
 			SendControl(NET_CTRLMSG_CONNECT, SECURITY_TOKEN_MAGIC, sizeof(SECURITY_TOKEN_MAGIC));
+#endif
 	}
 	else if(State() == NET_CONNSTATE_PENDING)
 	{

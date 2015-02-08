@@ -1,5 +1,6 @@
 /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
+#if !defined(EMSCRIPTEN)
 
 #include <base/detect.h>
 #include <base/math.h>
@@ -991,3 +992,4 @@ int CGraphics_Threaded::GetVideoModes(CVideoMode *pModes, int MaxModes)
 }
 
 extern IEngineGraphics *CreateEngineGraphicsThreaded() { return new CGraphics_Threaded(); }
+#endif

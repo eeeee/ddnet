@@ -54,7 +54,7 @@ void CInput::Init()
 
 void CInput::MouseRelative(float *x, float *y)
 {
-#if defined(__ANDROID__) // No relative mouse on Android
+#if defined(__ANDROID__) || defined(EMSCRIPTEN) // No relative mouse on Android
 	int nx = 0, ny = 0;
 	SDL_GetMouseState(&nx, &ny);
 	*x = nx;
@@ -137,7 +137,11 @@ int CInput::Update()
 
 	{
 		int i;
+#if defined(EMSCRIPTEN)
+		Uint8 *pState = SDL_GetKeyboardState(&i);
+#else
 		Uint8 *pState = SDL_GetKeyState(&i);
+#endif
 		if(i >= KEY_LAST)
 			i = KEY_LAST-1;
 		mem_copy(m_aInputState[m_InputCurrent], pState, i);
@@ -168,6 +172,9 @@ int CInput::Update()
 				case SDL_KEYDOWN:
 					// skip private use area of the BMP(contains the unicodes for keyboard function keys on MacOS)
 					if(Event.key.keysym.unicode < 0xE000 || Event.key.keysym.unicode > 0xF8FF)	// ignore_convention
+#if defined(EMSCRIPTEN)
+						if (Event.key.keysym.sym < 256)
+#endif
 						AddEvent(Event.key.keysym.unicode, 0, 0); // ignore_convention
 					Key = Event.key.keysym.sym; // ignore_convention
 					break;
@@ -203,7 +210,7 @@ int CInput::Update()
 				case SDL_QUIT:
 					return 1;
 
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) || defined(EMSCRIPTEN)
 				case SDL_VIDEORESIZE:
 					m_VideoRestartNeeded = 1;
 					break;

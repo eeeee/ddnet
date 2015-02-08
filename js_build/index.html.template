@@ -1,0 +1,73 @@
+<!doctype html>
+
+<!--
+
+Ported to JavaScript by eeeee, using http://emscripten.org/
+Source and licensing: https://github.com/eeeee/ddnet/tree/js
+
+IRC: #ddnet on QuakeNet
+Download desktop version at: http://ddnet.tw/downloads
+
+Based on work by:
+  - deen and DDNet contributors: https://github.com/def-/ddnet/
+  - eeeee and fstd: https://github.com/eeeee/teeworlds/tree/ddrace64
+  - greyfox and DDRace contributors: https://github.com/DDRace/teeworlds
+  - matricks and Teeworlds contributors: https://github.com/teeworlds/teeworlds
+
+Special thanks to:
+  - Learath2 for testing and adding many HTTP related features to DDNet
+  - fstd for contributing the populated server list JSON generation code
+  - deen for testing and deploying websocket-capable servers
+
+-->
+
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>DDNet Client</title>
+  </head>
+  <body style="margin:0; width: 100%; height: 100%; overflow: hidden; cursor: none;">
+
+    <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+
+    <script type='text/javascript'>
+
+      var canvas = document.getElementById('canvas');
+      canvas.setAttribute('width', window.innerWidth);
+      canvas.setAttribute('height', window.innerHeight);
+
+      var Module;
+
+      var onResize = function() {
+        try {
+          Module['getCtx']().viewport(0, 0, window.innerWidth, window.innerHeight);
+          Module['setCanvasSize'](window.innerWidth, window.innerHeight);
+        }
+        catch (e) {
+          console.error(e);
+        }
+      };
+
+      Module = {
+        preRun: [],
+        postRun: [onResize],
+        canvas: (function() {
+          var canvas = document.getElementById('canvas');
+          canvas.addEventListener("webglcontextlost", function(e) { alert('WebGL context lost. You will need to reload the page.'); e.preventDefault(); }, false);
+          return canvas;
+        })(),
+        totalDependencies: 0
+      };
+
+      window.onerror = function(event) {};
+
+      window.addEventListener('resize', onResize, false);
+    </script>
+    <script async type="text/javascript" src="ddnet_GIT_HASH.js"></script>
+    <script type="text/javascript" src="raep.js"></script>
+    <script type="text/javascript">
+      raep(document.getElementById('canvas'));
+    </script>
+  </body>
+</html>

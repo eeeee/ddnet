@@ -12,7 +12,11 @@ public:
 
 	enum
 	{
+#if defined(EMSCRIPTEN)
+		MAX_MASTERSERVERS=0
+#else
 		MAX_MASTERSERVERS=4
+#endif
 	};
 
 	virtual void Init() = 0;

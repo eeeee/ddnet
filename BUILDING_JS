@@ -1,0 +1,8 @@
+1) "bam config"
+2) make sure that client builds normally: "bam client_release"
+3) clean the native binaries (we'll recompile them as bytecode): "bam client_release -c"
+4) install emsdk from https://s3.amazonaws.com/mozilla-games/emscripten/releases/emsdk-portable.tar.gz and activate it (emcc -v should work)
+5) apply the js_build/emscripten.patch to your emscripten source
+6) cd js_build; ./compile_to_js
+7) ????
+8) PROFIT

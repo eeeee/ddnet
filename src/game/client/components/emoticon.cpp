@@ -51,11 +51,13 @@ void CEmoticon::OnMessage(int MsgType, void *pRawMsg)
 
 bool CEmoticon::OnMouseMove(float x, float y)
 {
-	if(!m_Active)
+	if(!m_Active) {
+		m_InitialMouse = vec2(x,y);
 		return false;
+	}
 
-#if defined(__ANDROID__) // No relative mouse on Android
-	m_SelectorMouse = vec2(x,y);
+#if defined(__ANDROID__) || defined(EMSCRIPTEN) // No relative mouse on Android
+	m_SelectorMouse = vec2(x,y) - m_InitialMouse;
 #else
 	UI()->ConvertMouseMove(&x, &y);
 	m_SelectorMouse += vec2(x,y);

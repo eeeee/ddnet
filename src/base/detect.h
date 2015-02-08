@@ -71,6 +71,13 @@
 	#define CONF_PLATFORM_STRING "solaris"
 #endif
 
+#if defined(EMSCRIPTEN)
+	#define CONF_FAMILY_UNIX 1
+	#define CONF_FAMILY_STRING "unix"
+	#define CONF_PLATFORM_EMSCRIPTEN 1
+	#define CONF_PLATFORM_STRING "emscripten"
+#endif
+
 /* beos family */
 #if defined(__BeOS) || defined(__BEOS__)
 	#define CONF_FAMILY_BEOS 1

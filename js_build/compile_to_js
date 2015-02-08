@@ -1,0 +1,60 @@
+#!/bin/bash
+
+die() { echo "$@" 1>&2 ; exit 1; }
+
+emcc -v &> /dev/null || die "emsdk not activated"
+
+# override gcc and g++
+mkdir -p /tmp/gcc_mocks || die "can't create tmp stuff"
+pushd /tmp/gcc_mocks > /dev/null || die "can't create tmp stuff"
+rm -f gcc g++ sdl-config
+ln -s `which emcc` gcc || die "can't mock gcc"
+ln -s `which em++` g++ || die "can't mock g++"
+ln -s $EMSCRIPTEN/system/bin/sdl-config . || die "can't mock sdl-config"
+popd > /dev/null
+
+# compile
+pushd .. > /dev/null || die ""
+PATH=/tmp/gcc_mocks:$PATH emmake ./bam client_release -v || die "compilation error :("
+ln -fs ../DDNet js_build/ddnet.bc || die ""
+pushd data > /dev/null || die "wheres data"
+PRELOAD=`ls skins/*.png | sed 's/^\(.*\)$/--preload-file "\1"/g'`
+cp ../js_build/settings.cfg .
+
+
+echo ""
+echo -e "\e[1;33m*** Make sure to apply emscripten.patch to your emscripten installation!\e[0m"
+echo -e "\e[1;33m*** It contains some fixes for emscripten bugs. We'll report and get them fixed upstream eventually.\e[0m"
+echo ""
+
+git_hash=`git log --pretty=format:'%h' -n 1`
+mkdir -p ../js_build/release || die "can't create release dir"
+rm ../js_build/release/*
+echo $PRELOAD | xargs \
+emcc -v ../js_build/ddnet.bc ../js_build/libfreetype.opt.bc -o ../js_build/release/ddnet_$git_hash.html \
+	--js-library ../js_build/tw.js \
+	--pre-js ../js_build/pre.js \
+	-O3 --closure 1 \
+	-s GL_FFP_ONLY=1 \
+	-s NO_EXIT_RUNTIME=1 \
+	-s CORRECT_ROUNDINGS=0 \
+	-s DOUBLE_MODE=0 \
+	-s PRECISE_I64_MATH=0 \
+	-s TOTAL_MEMORY=33554432 \
+	-s ASSERTIONS=0 \
+	-s LEGACY_GL_EMULATION=1 \
+	--preload-file fonts/DejaVuSans.ttf \
+	--preload-file settings.cfg \
+	|| die "linking error"
+rm settings.cfg
+popd > /dev/null
+popd > /dev/null
+
+sed s/GIT_HASH/$git_hash/g index.html.template > release/index.html || die "can't generate index.html"
+cp raep.js release
+
+rm -r /tmp/gcc_mocks/
+echo "********"
+echo now run
+echo python -m SimpleHTTPServer 8080
+echo and navigate to http://localhost:8080/release/index.html
