@@ -87,7 +87,8 @@ public:
 		SET_MASTER_ADD=1,
 		SET_FAV_ADD,
 		SET_DDNET_ADD,
-		SET_TOKEN
+		SET_TOKEN,
+		SET_DIRECT
 	};
 
 	virtual void Refresh(int Type) = 0;
