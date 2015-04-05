@@ -4,6 +4,7 @@
 #define ENGINE_CLIENT_SERVERBROWSER_H
 
 #include <engine/serverbrowser.h>
+#include <engine/fetcher.h>
 
 class CServerBrowser : public IServerBrowser
 {
@@ -131,6 +132,8 @@ private:
 	
 	int m_NeedRefresh;
 
+	CFetchTask *m_pDownloadTask;
+
 	int m_NumSortedServers;
 	int m_NumSortedServersCapacity;
 	int m_NumServers;
@@ -158,6 +161,9 @@ private:
 	void Filter();
 	void Sort();
 	int SortHash() const;
+
+	void FetchList();
+	void ParseList();
 
 	CServerEntry *Add(const NETADDR &Addr);
 

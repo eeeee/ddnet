@@ -479,9 +479,9 @@ void CServerBrowser::Set(const NETADDR &Addr, int Type, int Token, const CServer
 			QueueRequest(pEntry);
 		}
 	}
-	else if(Type == IServerBrowser::SET_TOKEN)
+	else if(Type == IServerBrowser::SET_TOKEN || Type == IServerBrowser::SET_DIRECT)
 	{
-		if(Token != m_CurrentToken)
+		if(Token != m_CurrentToken && Type != IServerBrowser::SET_DIRECT)
 			return;
 
 		pEntry = Find(Addr);
@@ -548,8 +548,16 @@ void CServerBrowser::Refresh(int Type)
 		if(g_Config.m_Debug)
 			m_pConsole->Print(IConsole::OUTPUT_LEVEL_DEBUG, "client_srvbrowse", "broadcasting for servers");
 	}
-	else if(Type == IServerBrowser::TYPE_INTERNET)
-		m_NeedRefresh = 1;
+	else if(Type == IServerBrowser::TYPE_INTERNET){
+		if(!g_Config.m_ClHttpSrvList)
+			m_NeedRefresh = 1;
+		else{
+			if(!m_pDownloadTask)
+				FetchList();
+			else
+				m_pDownloadTask->Abort();
+		}
+	}
 	else if(Type == IServerBrowser::TYPE_FAVORITES)
 	{
 		for(int i = 0; i < m_NumFavoriteServers; i++)
@@ -645,6 +653,64 @@ void CServerBrowser::Request(const NETADDR &Addr) const
 	RequestImpl(Addr, 0);
 }
 
+void CServerBrowser::FetchList()
+{
+	IFetcher *m_pFetcher = Kernel()->RequestInterface<IFetcher>();
+	delete m_pDownloadTask;
+	m_pDownloadTask = new CFetchTask;
+	m_pFetcher->QueueAdd(m_pDownloadTask, "http://ger2.ddnet.tw:8080/srvrlist.json", "srvlist.json", IStorage::TYPE_SAVE);
+}
+
+void CServerBrowser::ParseList()
+{
+	IStorage *pStorage = Kernel()->RequestInterface<IStorage>();
+	IOHANDLE File = pStorage->OpenFile("srvlist.json", IOFLAG_READ, IStorage::TYPE_ALL);
+
+	char aBuf[1024*1024];
+	mem_zero(aBuf, sizeof(aBuf));
+
+	io_read(File, aBuf, sizeof(aBuf));
+	io_close(File);
+
+	json_value *pServers = json_parse(aBuf);
+
+	if(pServers && pServers->type == json_array)
+	{
+		for(int i = 0; i < json_array_length(pServers); i++)
+		{
+			CServerInfo Info = {0};
+			json_value Server = (*pServers)[i];
+			str_copy(Info.m_aAddress, Server["address"], sizeof(Info.m_aAddress));
+			str_copy(Info.m_aVersion, Server["version"], sizeof(Info.m_aVersion));
+			str_copy(Info.m_aName, Server["servername"], sizeof(Info.m_aName));
+			str_copy(Info.m_aMap, Server["mapname"], sizeof(Info.m_aMap));
+			str_copy(Info.m_aGameType, Server["gametype"], sizeof(Info.m_aGameType));
+			Info.m_Flags = (long)Server["flags"];
+			Info.m_NumPlayers = (long)Server["numplayers"];
+			Info.m_MaxPlayers = (long)Server["maxplayers"];
+			Info.m_NumClients = (long)Server["numclients"];
+			Info.m_MaxClients = (long)Server["maxclients"];
+			Info.m_Latency = (long)Server["ping"];
+
+			if(Info.m_NumClients < 0 || Info.m_NumClients > MAX_CLIENTS || Info.m_MaxClients < 0 || Info.m_MaxClients > MAX_CLIENTS ||
+				Info.m_NumPlayers < 0 || Info.m_NumPlayers > Info.m_NumClients || Info.m_MaxPlayers < 0 || Info.m_MaxPlayers > Info.m_MaxClients)
+				dbg_msg("server_prefetch", "bad numclients %d %d %d %d", Info.m_NumPlayers, Info.m_MaxPlayers, Info.m_NumClients, Info.m_MaxClients);
+
+			for(int j = 0; j < json_array_length(&Server["clients"]); j++)
+			{
+				json_value Client = Server["clients"][j];
+				str_copy(Info.m_aClients[j].m_aName, Client["name"], sizeof(Info.m_aClients[j].m_aName));
+				str_copy(Info.m_aClients[j].m_aClan, Client["clan"], sizeof(Info.m_aClients[j].m_aClan));
+				Info.m_aClients[j].m_Country = (long)Client["country"];
+				Info.m_aClients[j].m_Score = (long)Client["score"];
+				Info.m_aClients[j].m_Player = (bool)Client["player"];
+			}
+			NETADDR Addr;
+			net_addr_from_str(&Addr, Info.m_aAddress);
+			Set(Addr, SET_DIRECT, 0, &Info);
+		}
+	}
+}
 
 void CServerBrowser::Update(bool ForceResort)
 {	
@@ -652,6 +718,22 @@ void CServerBrowser::Update(bool ForceResort)
 	int64 Now = time_get();
 	int Count;
 	CServerEntry *pEntry, *pNext;
+
+	if(m_pDownloadTask)
+	{
+		if(m_pDownloadTask->State() == CFetchTask::STATE_DONE)
+		{
+			ParseList();
+			delete m_pDownloadTask;
+			m_pDownloadTask = 0;
+		}
+		else if(m_pDownloadTask->State() == CFetchTask::STATE_ABORTED)
+		{
+			delete m_pDownloadTask;
+			m_pDownloadTask = 0;
+			FetchList();
+		}
+	}
 	
 	// do server list requests
 	if(m_NeedRefresh && !m_pMasterServer->IsRefreshing())
