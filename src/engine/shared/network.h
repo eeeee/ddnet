@@ -5,6 +5,7 @@
 
 #include "ringbuffer.h"
 #include "huffman.h"
+#include <engine/message.h>
 
 /*
 
@@ -279,6 +280,16 @@ class CNetServer
 	unsigned char m_SecurityTokenSeed[16];
 
 	CNetRecvUnpacker m_RecvUnpacker;
+
+	SECURITY_TOKEN GetToken(NETADDR &Addr);
+	SECURITY_TOKEN GetPrevToken(NETADDR &Addr);
+	SECURITY_TOKEN GetToken(NETADDR &Addr, long timestamp);
+	bool CheckToken(NETADDR &Addr, SECURITY_TOKEN token);
+	void SendMsgs(NETADDR &Addr, const CMsgPacker *Msgs[], int num);
+	void SendMsg(NETADDR &Addr, const CMsgPacker &Msg) {
+		const CMsgPacker *Msgs[] = {&Msg};
+		SendMsgs(Addr, Msgs, 1);
+	}
 
 public:
 	int SetCallbacks(NETFUNC_NEWCLIENT pfnNewClient, NETFUNC_DELCLIENT pfnDelClient, void *pUser);

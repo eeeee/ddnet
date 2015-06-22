@@ -8,6 +8,8 @@
 #include "netban.h"
 #include "network.h"
 #include <engine/external/md5/md5.h>
+#include <engine/message.h>
+#include <engine/shared/protocol.h>
 
 bool CNetServer::Open(NETADDR BindAddr, CNetBan *pNetBan, int MaxClients, int MaxClientsPerIP, int Flags)
 {
@@ -90,6 +92,62 @@ int CNetServer::Update()
 	}
 
 	return 0;
+}
+
+void CNetServer::SendMsgs(NETADDR &Addr, const CMsgPacker *Msgs[], int num) {
+	CNetPacketConstruct m_Construct;
+	mem_zero(&m_Construct, sizeof(m_Construct));
+	unsigned char *pChunkData = &m_Construct.m_aChunkData[m_Construct.m_DataSize];
+
+	for (int i = 0; i < num; i++) {
+		const CMsgPacker *msg = Msgs[i];
+		CNetChunkHeader Header;
+		Header.m_Flags = 0;
+		Header.m_Size = msg->Size();
+		Header.m_Sequence = 0;
+		pChunkData = Header.Pack(pChunkData);
+		mem_copy(pChunkData, msg->Data(), msg->Size());
+		*((unsigned char*)pChunkData) <<= 1;
+		*((unsigned char*)pChunkData) |= 1;
+		pChunkData += msg->Size();
+		m_Construct.m_NumChunks++;
+	}
+
+	//
+	m_Construct.m_DataSize = (int)(pChunkData-m_Construct.m_aChunkData);
+	CNetBase::SendPacket(m_Socket, &Addr, &m_Construct, GetToken(Addr));
+	CNetBase::SendPacket(m_Socket, &Addr, &m_Construct, GetPrevToken(Addr));
+}
+
+SECURITY_TOKEN CNetServer::GetToken(NETADDR &Addr) {
+	long token_idx = time_get() / time_freq() / 10;
+	return GetToken(Addr, token_idx);
+}
+
+SECURITY_TOKEN CNetServer::GetPrevToken(NETADDR &Addr) {
+	long token_idx = time_get() / time_freq() / 10;
+	return GetToken(Addr, token_idx - 1);
+}
+
+SECURITY_TOKEN CNetServer::GetToken(NETADDR &Addr, long timestamp) {
+	md5_state_t md5;
+	md5_byte_t digest[16];
+	SECURITY_TOKEN securityToken;
+	md5_init(&md5);
+	md5_append(&md5, (unsigned char*)m_SecurityTokenSeed, sizeof(m_SecurityTokenSeed));
+	md5_append(&md5, (unsigned char*)&Addr, sizeof(Addr));
+	md5_append(&md5, (unsigned char*)&timestamp, sizeof(timestamp));
+	md5_finish(&md5, digest);
+	securityToken = *(SECURITY_TOKEN*)digest;
+	if (securityToken < 0) {
+		securityToken = -securityToken;
+	}
+	securityToken += 2;
+	return securityToken;
+}
+
+bool CNetServer::CheckToken(NETADDR &Addr, SECURITY_TOKEN token) {
+	return token == GetToken(Addr) || token == GetPrevToken(Addr);
 }
 
 /*
@@ -190,24 +248,8 @@ int CNetServer::Recv(CNetChunk *pChunk)
 							if(m_aSlots[i].m_Connection.State() == NET_CONNSTATE_OFFLINE)
 							{
 								Found = true;
-								long timestamp = time_get();
-								md5_state_t md5;
-								md5_byte_t digest[16];
-								SECURITY_TOKEN securityToken;
-								do
-								{
-									md5_init(&md5);
-									md5_append(&md5, (unsigned char*)m_SecurityTokenSeed, sizeof(m_SecurityTokenSeed));
-									md5_append(&md5, (unsigned char*)&Addr, sizeof(Addr));
-									md5_append(&md5, (unsigned char*)&timestamp, sizeof(timestamp));
-									md5_finish(&md5, digest);
-									securityToken = *(SECURITY_TOKEN*)digest;
-									timestamp++;
-								}
-								while (securityToken == NET_SECURITY_TOKEN_UNKNOWN || securityToken == NET_SECURITY_TOKEN_UNSUPPORTED);
-								m_aSlots[i].m_Connection.Feed(&m_RecvUnpacker.m_Data, &Addr, securityToken);
-								if(m_pfnNewClient)
-									m_pfnNewClient(i, m_UserPtr);
+								SECURITY_TOKEN securityToken = GetToken(Addr);
+								CNetBase::SendControlMsg(m_Socket, &Addr, 0, NET_CTRLMSG_CONNECTACCEPT, SECURITY_TOKEN_MAGIC, sizeof(SECURITY_TOKEN_MAGIC), securityToken);
 								break;
 							}
 						}
@@ -222,6 +264,7 @@ int CNetServer::Recv(CNetChunk *pChunk)
 				else
 				{
 					// normal packet, find matching slot
+					Found = false;
 					for(int i = 0; i < MaxClients(); i++)
 					{
 						if(net_addr_comp(m_aSlots[i].m_Connection.PeerAddress(), &Addr) == 0)
@@ -234,6 +277,61 @@ int CNetServer::Recv(CNetChunk *pChunk)
 								if(m_RecvUnpacker.m_Data.m_DataSize)
 									m_RecvUnpacker.Start(&Addr, &m_aSlots[i].m_Connection, i);
 							}
+							Found = true;
+						}
+					}
+
+					if (!Found) {
+						CNetChunkHeader h;
+						unsigned char *pData = m_RecvUnpacker.m_Data.m_aChunkData;
+						pData = h.Unpack(pData);
+						CUnpacker Unpacker;
+						Unpacker.Reset(pData, h.m_Size);
+						int Msg = Unpacker.GetInt() >> 1;
+						if (Msg == NETMSG_INPUT) {
+							int ack = Unpacker.GetInt();
+							if (CheckToken(Addr, ack)) {
+								for(int i = 0; i < MaxClients(); i++)
+								{
+									if(m_aSlots[i].m_Connection.State() == NET_CONNSTATE_OFFLINE)
+									{
+										Found = true;
+										CNetPacketConstruct *pPacket = &m_RecvUnpacker.m_Data;
+										pPacket->m_DataSize -= sizeof(SECURITY_TOKEN);
+										SECURITY_TOKEN securityToken = *(SECURITY_TOKEN*)&pPacket->m_aChunkData[pPacket->m_DataSize];
+										if (!CheckToken(Addr, securityToken)) {
+											securityToken = NET_SECURITY_TOKEN_UNSUPPORTED;
+										}
+										CNetPacketConstruct m_Construct;
+										mem_zero(&m_Construct, sizeof(m_Construct));
+										unsigned char *pChunkData;
+										m_Construct.m_aChunkData[0] = NET_CTRLMSG_CONNECT;
+										mem_copy(m_Construct.m_aChunkData + 1, SECURITY_TOKEN_MAGIC, sizeof(SECURITY_TOKEN_MAGIC));
+										mem_copy(m_Construct.m_aChunkData + 1 + sizeof(SECURITY_TOKEN_MAGIC), &securityToken, sizeof(securityToken));
+										m_Construct.m_DataSize = 1 + sizeof(SECURITY_TOKEN_MAGIC) + sizeof(securityToken);
+										m_Construct.m_Flags = NET_PACKETFLAG_CONTROL;
+										m_aSlots[i].m_Connection.Feed(&m_Construct, &Addr, securityToken);
+										if(m_pfnNewClient)
+											m_pfnNewClient(i, m_UserPtr);
+										break;
+									}
+								}
+
+								if(!Found)
+								{
+									const char FullMsg[] = "This server is full";
+									CNetBase::SendControlMsg(m_Socket, &Addr, 0, NET_CTRLMSG_CLOSE, FullMsg, sizeof(FullMsg), NET_SECURITY_TOKEN_UNSUPPORTED);
+								}
+							} else {
+								dbg_msg("BAD TOKEN", "");
+							}
+						} else {
+							CMsgPacker Msg(NETMSG_SNAPEMPTY);
+							SECURITY_TOKEN securityToken = GetToken(Addr);
+							Msg.AddInt((int)securityToken);
+							Msg.AddInt((int)securityToken + 1);
+							const CMsgPacker *Msgs[] = {&Msg, &Msg, &Msg};
+							SendMsgs(Addr, Msgs, 3);
 						}
 					}
 				}
