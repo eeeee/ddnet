@@ -16,49 +16,44 @@ const char* vanillaSkins[] = {"bluekitty.png", "bluestripe.png", "brownbear.png"
 	"pinky.png", "redbopp.png", "redstripe.png", "saddo.png", "toptri.png",
 	"twinbop.png", "twintri.png", "warpaint.png", "x_ninja.png"};
 
-int CSkins::SkinScan(const char *pName, int IsDir, int DirType, void *pUser)
+void CSkins::UnloadSkin(CSkin &Skin)
 {
-	if(!g_Config.m_ClShowNewSkins)
+	if(g_Config.m_Debug)
 	{
-		bool found = false;
-		for(unsigned int i = 0; i < sizeof(vanillaSkins) / sizeof(vanillaSkins[0]); i++)
-		{
-			if(str_comp(pName, vanillaSkins[i]) == 0)
-			{
-				found = true;
-				break;
-			}
-		}
-		if(!found)
-			return 0;
+		char aBuf[512];
+		str_format(aBuf, sizeof(aBuf), "unloading skin %s", Skin.m_aName);
+		Console()->Print(IConsole::OUTPUT_LEVEL_ADDINFO, "game", aBuf);
 	}
+	Graphics()->UnloadTexture(Skin.m_OrgTexture);
+	Graphics()->UnloadTexture(Skin.m_ColorTexture);
+	Skin.m_OrgTexture = m_aSkins[0].m_OrgTexture;
+	Skin.m_ColorTexture = m_aSkins[0].m_ColorTexture;
+	Skin.m_BloodColor = m_aSkins[0].m_BloodColor;
+	Skin.m_State = SKIN_STATE_NOT_LOADED;
+}
 
-	CSkins *pSelf = (CSkins *)pUser;
-
-	int l = str_length(pName);
-	if(l < 4 || IsDir || str_comp(pName+l-4, ".png") != 0)
-		return 0;
-
-	// Don't add duplicate skins (one from user's config directory, other from
-	// client itself)
-	for(int i = 0; i < pSelf->Num(); i++)
-	{
-		const char* pExName = pSelf->Get(i)->m_aName;
-		if(str_comp_num(pExName, pName, l-4) == 0 && str_length(pExName) == l-4)
-			return 0;
-	}
+void CSkins::LoadSkin(const CSkin &Skin)
+{
+	CSkins *pSelf = this;
 
 	char aBuf[512];
-	str_format(aBuf, sizeof(aBuf), "skins/%s", pName);
+	str_format(aBuf, sizeof(aBuf), "skins/%s.png", Skin.m_aName);
 	CImageInfo Info;
-	if(!pSelf->Graphics()->LoadPNG(&Info, aBuf, DirType))
+	if(!pSelf->Graphics()->LoadPNG(&Info, aBuf, IStorage::TYPE_ALL))
 	{
-		str_format(aBuf, sizeof(aBuf), "failed to load skin from %s", pName);
+		str_format(aBuf, sizeof(aBuf), "failed to load skin from %s.png", Skin.m_aName);
 		pSelf->Console()->Print(IConsole::OUTPUT_LEVEL_ADDINFO, "game", aBuf);
-		return 0;
+		Skin.m_State = SKIN_STATE_ERROR;
+		int def = Find("default");
+		if (def > -1)
+		{
+			Skin.m_OrgTexture = m_aSkins[def].m_OrgTexture;
+			Skin.m_ColorTexture = m_aSkins[def].m_ColorTexture;
+			Skin.m_BloodColor = m_aSkins[def].m_BloodColor;
+		}
+		return;
 	}
 
-	CSkin Skin;
 	Skin.m_OrgTexture = pSelf->Graphics()->LoadTextureRaw(Info.m_Width, Info.m_Height, Info.m_Format, Info.m_pData, Info.m_Format, 0);
 
 	int BodySize = 96; // body size
@@ -133,12 +128,52 @@ int CSkins::SkinScan(const char *pName, int IsDir, int DirType, void *pUser)
 	mem_free(Info.m_pData);
 
 	// set skin data
-	str_copy(Skin.m_aName, pName, min((int)sizeof(Skin.m_aName),l-3));
 	if(g_Config.m_Debug)
 	{
 		str_format(aBuf, sizeof(aBuf), "load skin %s", Skin.m_aName);
 		pSelf->Console()->Print(IConsole::OUTPUT_LEVEL_ADDINFO, "game", aBuf);
 	}
+	Skin.m_State = SKIN_STATE_LOADED;
+}
+
+int CSkins::SkinScan(const char *pName, int IsDir, int DirType, void *pUser)
+{
+	bool vanilla = false;
+	for(unsigned int i = 0; i < sizeof(vanillaSkins) / sizeof(vanillaSkins[0]); i++)
+	{
+		if(str_comp(pName, vanillaSkins[i]) == 0)
+		{
+			vanilla = true;
+			break;
+		}
+	}
+	if(!g_Config.m_ClShowNewSkins && !vanilla)
+		return 0;
+
+	CSkins *pSelf = (CSkins *)pUser;
+
+	int l = str_length(pName);
+	if(l < 4 || IsDir || str_comp(pName+l-4, ".png") != 0)
+		return 0;
+
+	// Don't add duplicate skins (one from user's config directory, other from
+	// client itself)
+	for(int i = 0; i < pSelf->Num(); i++)
+	{
+		const char* pExName = pSelf->m_aSkins[i].m_aName;
+		if(str_comp_num(pExName, pName, l-4) == 0 && str_length(pExName) == l-4)
+			return 0;
+	}
+
+	CSkin Skin;
+	str_copy(Skin.m_aName, pName, min((int)sizeof(Skin.m_aName),l-3));
+	Skin.m_LastUsed = 0;
+	Skin.m_OrgTexture = -1;
+	Skin.m_ColorTexture = -1;
+	Skin.m_BloodColor = vec3(1.0f, 1.0f, 1.0f);
+	Skin.m_State = SKIN_STATE_NOT_LOADED;
+	if (vanilla)
+		pSelf->LoadSkin(Skin);
 	pSelf->m_aSkins.add(Skin);
 
 	return 0;
@@ -149,17 +184,8 @@ void CSkins::OnInit()
 {
 	// load skins
 	m_aSkins.clear();
+	m_UsageCounter = 0;
 	Storage()->ListDirectory(IStorage::TYPE_ALL, "skins", SkinScan, this);
-	if(!m_aSkins.size())
-	{
-		Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "gameclient", "failed to load skins. folder='skins/'");
-		CSkin DummySkin;
-		DummySkin.m_OrgTexture = -1;
-		DummySkin.m_ColorTexture = -1;
-		str_copy(DummySkin.m_aName, "dummy", sizeof(DummySkin.m_aName));
-		DummySkin.m_BloodColor = vec3(1.0f, 1.0f, 1.0f);
-		m_aSkins.add(DummySkin);
-	}
 }
 
 int CSkins::Num()
@@ -167,9 +193,43 @@ int CSkins::Num()
 	return m_aSkins.size();
 }
 
-const CSkins::CSkin *CSkins::Get(int Index)
+void CSkins::Use(const CSkin *pSkin) {
+	pSkin->m_LastUsed = m_UsageCounter++;
+	if (pSkin->m_State != SKIN_STATE_NOT_LOADED)
+		return;
+	int skinsLoaded;
+	do
+	{
+		// check if we must unload some skins first to comply with cl_skins_cache_size
+		int minLastUsed = m_UsageCounter;
+		int minLastUsedIdx = -1;
+		skinsLoaded = 0;
+		for (int i = 0; i < Num(); i++)
+		{
+			if (m_aSkins[i].m_State == SKIN_STATE_LOADED)
+			{
+				skinsLoaded++;
+				if (m_aSkins[i].m_LastUsed < minLastUsed && str_comp(m_aSkins[i].m_aName, "default") != 0)
+				{
+					minLastUsed = m_aSkins[i].m_LastUsed;
+					minLastUsedIdx = i;
+				}
+			}
+		}
+		if (minLastUsedIdx == -1 || skinsLoaded <= g_Config.m_ClSkinsCacheSize)
+			break;
+		UnloadSkin(m_aSkins[minLastUsedIdx]);
+	}
+	while (true);
+	LoadSkin(*pSkin);
+}
+
+const CSkins::CSkin *CSkins::Get(int Index, bool CallUse)
 {
-	return &m_aSkins[max(0, Index%m_aSkins.size())];
+	CSkin *pSkin = &m_aSkins[max(0, Index%m_aSkins.size())];
+	if (CallUse)
+		Use(pSkin);
+	return pSkin;
 }
 
 int CSkins::Find(const char *pName)
